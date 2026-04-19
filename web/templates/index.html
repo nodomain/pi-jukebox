@@ -469,8 +469,8 @@ async function pollMaQueue() {
         lyCard.style.display = '';
       } else { lyCard.style.display = 'none'; }
 
-      // Album color background
-      if (d.image_url && d.image_url !== lastImageUrl) {
+      // Album art background — fallback to MA image if Snapcast didn't provide one
+      if (d.image_url && d.image_url !== lastImageUrl && !lastImageUrl) {
         lastImageUrl = d.image_url;
         updatePlayerBackground(d.image_url);
       }
@@ -495,7 +495,15 @@ async function pollSnapcast() {
       document.getElementById('np-artist').textContent = np.artist || '';
       document.getElementById('np-album').textContent = np.album || '';
       const art = document.getElementById('np-art');
-      if (np.artUrl) { art.src = np.artUrl; art.style.display = ''; }
+      if (np.artUrl) {
+        art.src = np.artUrl;
+        art.style.display = '';
+        // Update blurred background from Snapcast art (immediate on track change)
+        if (np.artUrl !== lastImageUrl) {
+          lastImageUrl = np.artUrl;
+          updatePlayerBackground(np.artUrl);
+        }
+      }
       else { art.style.display = 'none'; }
       // Progress handled by pollMaQueue
     } else {
