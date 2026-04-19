@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pair Bluetooth speaker and enable overlay FS.
+# Pair Bluetooth speaker.
 # Run after setup.sh + reboot, with speaker in pairing mode.
 #
 # Run as root: sudo ./pair-bt.sh
@@ -45,12 +45,6 @@ else
     echo "Not connected yet — this is normal. Watchdog will connect after reboot."
 fi
 
-echo "==> Enabling overlay filesystem (read-only root)"
-raspi-config nonint enable_overlayfs
-raspi-config nonint enable_bootro
-
 echo ""
-echo "=== Done! Rebooting in 5 seconds ==="
-echo "After reboot, the Pi will auto-connect to ${BT_DEVICE_NAME} and stream via Bluetooth."
-sleep 5
-reboot
+echo "=== Done! ==="
+echo "Reboot to start streaming: sudo reboot"
