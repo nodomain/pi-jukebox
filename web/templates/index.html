@@ -14,12 +14,13 @@ body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg);
 h1 { font-size: 1.2em; margin-bottom: 12px; text-align: center; }
 h2 { font-size: 0.85em; color: var(--dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
-.stat-val { font-size: 1.6em; font-weight: 700; }
+.stat-val { font-size: 2em; font-weight: 700; line-height: 1.1; }
 .stat-label { color: var(--dim); font-size: 0.8em; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
 .badge-green { background: #1b3a1b; color: var(--green); }
 .badge-red { background: #3a1b1b; color: var(--red); }
 .badge-orange { background: #3a2e1b; color: var(--orange); }
+.badge-cyan { background: #1b3a3a; color: #4dd0e1; }
 canvas { max-height: 150px; width: 100% !important; }
 button { background: var(--accent); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 0.9em; touch-action: manipulation; }
 button:active { opacity: 0.7; }
@@ -46,21 +47,39 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 @media (min-width: 500px) { .now-playing img { width: 128px; height: 128px; } }
 @media (min-width: 900px) { .now-playing img { width: 160px; height: 160px; } }
 .now-playing .np-info { flex: 1; min-width: 0; }
-.now-playing .np-title { font-weight: 700; font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-playing .np-artist { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-playing .np-album { color: var(--dim); font-size: 0.75em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing .np-title { font-weight: 700; font-size: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing .np-artist { color: var(--dim); font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing .np-album { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Playback controls */
 .playback-controls { display: flex; justify-content: center; gap: 16px; margin-top: 10px; }
-.playback-controls button { background: none; border: none; color: var(--text); font-size: 1.8em; padding: 4px 12px; cursor: pointer; border-radius: 50%; }
+.playback-controls button { background: none; border: none; color: var(--text); font-size: 2.4em; padding: 4px 14px; cursor: pointer; border-radius: 50%; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center; }
 .playback-controls button:active { background: var(--border); }
 .playback-controls button:disabled { color: #333; }
 
 /* Throttle flags */
 .throttle-flags { display: flex; flex-wrap: wrap; gap: 4px; }
 .throttle-flags .flag { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; }
-.flag-ok { background: #1b3a1b; color: var(--green); }
-.flag-warn { background: #3a1b1b; color: var(--red); }
+.flag-ok { background: #1b2a1b; color: #5a7a5a; }
+.flag-warn { background: #3a1b1b; color: var(--red); font-weight: 700; }
+
+/* Player card gradient */
+.card.player-card { position: relative; overflow: hidden; z-index: 0; }
+.card.player-card .bg-blur { position: absolute; inset: -20px; z-index: -1; background-size: cover; background-position: center; filter: blur(30px) brightness(0.4); transition: background-image 1.5s ease; }
+
+/* Queue items */
+.q-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 0.8em; cursor: pointer; }
+.q-item:last-child { border: none; }
+.q-item:hover { background: rgba(255,255,255,0.04); }
+.q-item.q-current { color: var(--accent); font-weight: 600; }
+.q-item .q-idx { color: var(--dim); min-width: 24px; text-align: right; font-size: 0.75em; }
+.q-item .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-item .q-dur { color: var(--dim); font-size: 0.75em; min-width: 32px; text-align: right; }
+.q-item .q-actions { display: flex; gap: 2px; }
+.q-item .q-actions button { background: none; border: none; color: var(--dim); font-size: 0.9em; padding: 2px 4px; cursor: pointer; min-width: 24px; min-height: 24px; }
+.q-item .q-actions button:hover { color: var(--text); }
+.ctrl-btn { padding: 2px 4px; border-radius: 4px; }
+.ctrl-btn:hover { background: rgba(255,255,255,0.1); }
 </style>
 </head>
 <body>
@@ -68,7 +87,8 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 <h1>🎵 Jukebox Pi</h1>
 
 <!-- Now Playing + Controls -->
-<div class="card">
+<div class="card player-card" id="player-card">
+  <div class="bg-blur" id="player-bg"></div>
   <h2>Now Playing</h2>
   <div class="now-playing" id="now-playing">
     <img id="np-art" src="" alt="">
@@ -83,6 +103,27 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
     <button id="btn-playpause" onclick="togglePlayPause()" disabled>▶</button>
     <button id="btn-next" onclick="snapControl('next')" disabled>⏭</button>
   </div>
+  <div style="margin-top:8px; display:flex; align-items:center; gap:8px; font-size:0.75em; color:var(--dim)">
+    <span id="np-pos">0:00</span>
+    <div style="flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; cursor:pointer" id="progress-bar">
+      <div id="progress-fill" style="height:100%; background:#4a9eff; width:0%; border-radius:2px"></div>
+    </div>
+    <span id="np-dur">0:00</span>
+  </div>
+  <!-- Track info row: quality badge, queue position, shuffle/repeat -->
+  <div id="np-meta-row" style="margin-top:6px; display:flex; align-items:center; gap:10px; font-size:0.7em; color:var(--dim); flex-wrap:wrap">
+    <span id="np-quality" class="badge" style="display:none"></span>
+    <span id="np-codec" style="opacity:0.6"></span>
+    <span id="np-queue-pos"></span>
+    <span id="np-shuffle" class="ctrl-btn" style="display:none; cursor:pointer" onclick="toggleShuffle()">🔀</span>
+    <span id="np-repeat" class="ctrl-btn" style="display:none; cursor:pointer" onclick="toggleRepeat()"></span>
+    <span id="np-loudness" style="opacity:0.6"></span>
+    <span id="np-popularity" style="opacity:0.6"></span>
+  </div>
+  <!-- Up Next -->
+  <div id="np-next" style="margin-top:6px; font-size:0.75em; color:var(--dim); display:none">
+    <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
+  </div>
   <div class="vol-row" style="margin-top:10px">
     <span>🔊</span>
     <input type="range" id="vol-slider" min="0" max="100" value="30">
@@ -90,8 +131,30 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   </div>
 </div>
 
+<!-- Lyrics -->
+<div class="card" id="lyrics-card" style="display:none">
+  <h2>Lyrics</h2>
+  <pre id="lyrics-text" style="white-space:pre-wrap; font-size:0.8em; color:var(--dim); max-height:200px; overflow-y:auto; margin:0; font-family:inherit; line-height:1.6"></pre>
+</div>
+
+<!-- Queue Browser -->
+<div class="card" id="queue-card" style="display:none">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+    <h2 style="margin:0">Queue <span id="queue-count" style="font-weight:400"></span></h2>
+    <div style="display:flex; gap:6px">
+      <button onclick="toggleQueue()" class="secondary" style="padding:4px 10px; font-size:0.75em" id="btn-queue-toggle">Show</button>
+      <button onclick="clearQueue()" class="danger" style="padding:4px 10px; font-size:0.75em">Clear</button>
+    </div>
+  </div>
+  <div id="queue-list" style="max-height:400px; overflow-y:auto; display:none"></div>
+</div>
+
+<!-- System & Diagnostics (collapsible) -->
+<details id="tech-details" style="margin-bottom:10px">
+<summary style="cursor:pointer; padding:10px; background:var(--card); border-radius:8px; color:var(--dim); font-size:0.85em; font-weight:600; text-transform:uppercase; letter-spacing:1px">▶ System &amp; Diagnostics</summary>
+
 <!-- Status Cards -->
-<div class="grid-4">
+<div class="grid-4" style="margin-top:10px">
   <div class="card">
     <div class="stat-label">Bluetooth</div>
     <div id="bt-status"><span class="badge badge-red">—</span></div>
@@ -137,6 +200,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   <div class="card"><h2>Traffic KB/s</h2><canvas id="chart-traffic"></canvas></div>
   <div class="card"><h2>SD Writes</h2><canvas id="chart-sd"></canvas></div>
 </div>
+<div class="grid-3">
+  <div class="card" style="grid-column: span 3"><h2>Snapcast Buffer Jitter (ms)</h2><canvas id="chart-jitter"></canvas></div>
+</div>
 
 <!-- Bottom sections -->
 <div class="grid-3">
@@ -155,12 +221,13 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   <div class="card">
     <h2>Services</h2>
     <div class="btn-row">
-      <button onclick="svcAction('restart-snapclient')">Restart Snapclient</button>
-      <button onclick="svcAction('restart-bt')">Restart BT</button>
-      <button onclick="if(confirm('Reboot?'))svcAction('reboot')" class="danger">Reboot</button>
+      <button onclick="if(confirm('Restart Snapclient?'))svcAction('restart-snapclient')">Restart Snapclient</button>
+      <button onclick="if(confirm('Restart BT Watchdog?'))svcAction('restart-bt')">Restart BT</button>
+      <button onclick="if(confirm('Reboot the Pi?'))svcAction('reboot')" class="danger">Reboot</button>
     </div>
   </div>
 </div>
+</details>
 
 <script>
 const MAX_POINTS = 100;
@@ -169,6 +236,11 @@ const labels = [];
 let prevRx = 0, prevTx = 0, prevSdWrites = 0, firstPoll = true;
 let currentStreamId = '';
 let isPlaying = false;
+let currentQueueId = '';
+let queueVisible = false;
+let lastImageUrl = '';
+let currentShuffle = false;
+let currentRepeat = 'off';
 
 function makeChart(id, datasets, yOpts = {}) {
   return new Chart(document.getElementById(id), {
@@ -184,7 +256,7 @@ function makeChart(id, datasets, yOpts = {}) {
         }
       },
       scales: {
-        x: { display: false },
+        x: { display: true, ticks: { color: '#555', font: { size: 8 }, maxTicksLimit: 5, maxRotation: 0 }, grid: { display: false } },
         y: { ...yOpts, ticks: { color: '#888', font: { size: 9 } }, grid: { color: '#2a2d37' } }
       },
       elements: { point: { radius: 0, hitRadius: 8, hoverRadius: 4 }, line: { tension: 0.3, borderWidth: 1.5 } }
@@ -202,6 +274,26 @@ const wifiChart = makeChart('chart-wifi', [ds('dBm', '#4a9eff')]);
 const loadChart = makeChart('chart-load', [ds('1m', '#4a9eff'), ds('5m', '#4caf50'), ds('15m', '#ff9800')], { min: 0 });
 const trafficChart = makeChart('chart-traffic', [ds('RX', '#4caf50'), ds('TX', '#ff9800')], { min: 0 });
 const sdChart = makeChart('chart-sd', [ds('Writes', '#f44336')], { min: 0 });
+
+// Jitter chart — scatter-style with time x-axis
+const jitterChart = new Chart(document.getElementById('chart-jitter'), {
+  type: 'line',
+  data: {
+    datasets: [
+      { label: 'pBuffer', data: [], borderColor: '#4a9eff', backgroundColor: '#4a9eff20', fill: false, pointRadius: 3, showLine: true, tension: 0.3 },
+      { label: 'pShortBuffer', data: [], borderColor: '#ff9800', backgroundColor: '#ff980020', fill: false, pointRadius: 3, showLine: true, tension: 0.3 },
+      { label: 'pMiniBuffer', data: [], borderColor: '#f44336', backgroundColor: '#f4433620', fill: false, pointRadius: 3, showLine: true, tension: 0.3 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    scales: {
+      x: { type: 'linear', display: true, ticks: { color: '#555', font: { size: 8 }, maxTicksLimit: 6, maxRotation: 0, callback: v => new Date(v * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) }, grid: { display: false } },
+      y: { display: true, ticks: { color: '#555', font: { size: 8 } }, grid: { color: '#333' }, title: { display: true, text: 'ms', color: '#777', font: { size: 9 } } }
+    },
+    plugins: { legend: { labels: { color: '#aaa', font: { size: 9 } } } }
+  }
+});
 
 function pushData(chart, ...vals) {
   vals.forEach((v, i) => {
@@ -284,6 +376,110 @@ async function pollAudio() {
   } catch (e) {}
 }
 
+function fmtTime(s) { s = Math.max(0, Math.round(s)); const m = Math.floor(s/60); return m + ':' + String(s%60).padStart(2,'0'); }
+let npDuration = 0, npElapsed = 0, npElapsedAt = 0, npServerTime = 0;
+
+function updateProgress() {
+  if (npDuration <= 0 || !npElapsedAt) return;
+  // Interpolate: elapsed + (now - when_server_reported_it), adjusted for server/client clock diff
+  const clientNow = Date.now() / 1000;
+  const drift = npServerTime ? (clientNow - npServerTime) : 0;
+  const pos = Math.min(npElapsed + (clientNow - npElapsedAt - drift), npDuration);
+  document.getElementById('np-pos').textContent = fmtTime(pos);
+  document.getElementById('np-dur').textContent = fmtTime(npDuration);
+  document.getElementById('progress-fill').style.width = (Math.max(0,pos)/npDuration*100)+'%';
+}
+setInterval(updateProgress, 1000);
+
+async function pollMaQueue() {
+  try {
+    const r = await fetch('/api/ma/queue');
+    const d = await r.json();
+    if (d.duration > 0) {
+      npElapsed = d.elapsed_time || 0;
+      npElapsedAt = d.elapsed_time_last_updated || 0;
+      npDuration = d.duration || 0;
+      npServerTime = d.server_time || 0;
+      updateProgress();
+
+      // Store queue_id for queue browser
+      if (d.queue_id) currentQueueId = d.queue_id;
+
+      // 1. Audio Quality Badge
+      const qEl = document.getElementById('np-quality');
+      if (d.quality) {
+        const qMap = { LQ: 'badge-orange', HQ: 'badge-green', HR: 'badge-cyan' };
+        qEl.className = 'badge ' + (qMap[d.quality] || '');
+        qEl.textContent = d.quality;
+        qEl.style.display = '';
+      } else { qEl.style.display = 'none'; }
+
+      // Codec info
+      const cEl = document.getElementById('np-codec');
+      if (d.codec) {
+        cEl.textContent = d.codec.toUpperCase() + ' ' + (d.sample_rate/1000) + 'kHz/' + d.bit_depth + 'bit';
+      } else { cEl.textContent = ''; }
+
+      // 2. Queue position
+      const qpEl = document.getElementById('np-queue-pos');
+      if (d.queue_total > 0) {
+        qpEl.textContent = (d.queue_index + 1) + '/' + d.queue_total;
+      } else { qpEl.textContent = ''; }
+
+      // 3. Shuffle — always show, highlight when active
+      const shEl = document.getElementById('np-shuffle');
+      shEl.style.display = '';
+      shEl.style.opacity = d.shuffle ? '1' : '0.3';
+      currentShuffle = d.shuffle;
+
+      // 4. Repeat — always show, cycle through off/one/all
+      const rpEl = document.getElementById('np-repeat');
+      rpEl.style.display = '';
+      currentRepeat = d.repeat || 'off';
+      if (currentRepeat === 'one') { rpEl.textContent = '🔂'; rpEl.style.opacity = '1'; }
+      else if (currentRepeat === 'all') { rpEl.textContent = '🔁'; rpEl.style.opacity = '1'; }
+      else { rpEl.textContent = '🔁'; rpEl.style.opacity = '0.3'; }
+
+      // 5. Loudness target
+      const lEl = document.getElementById('np-loudness');
+      lEl.textContent = d.target_loudness != null ? d.target_loudness + ' LUFS' : '';
+
+      // 6. Popularity
+      const pEl = document.getElementById('np-popularity');
+      if (d.popularity != null && d.popularity > 0) {
+        pEl.textContent = '🔥 ' + d.popularity + '%';
+      } else { pEl.textContent = ''; }
+
+      // 7. Up Next
+      const nxEl = document.getElementById('np-next');
+      const nxName = document.getElementById('np-next-name');
+      if (d.next_track) {
+        nxName.textContent = d.next_track;
+        nxEl.style.display = '';
+      } else { nxEl.style.display = 'none'; }
+
+      // Lyrics
+      const lyCard = document.getElementById('lyrics-card');
+      const lyText = document.getElementById('lyrics-text');
+      const lyrics = d.lyrics || '';
+      if (lyrics) {
+        lyText.textContent = lyrics.replace(/\[\d+:\d+[\.\:]\d+\]/g, '').trim();
+        lyCard.style.display = '';
+      } else { lyCard.style.display = 'none'; }
+
+      // Album color background
+      if (d.image_url && d.image_url !== lastImageUrl) {
+        lastImageUrl = d.image_url;
+        updatePlayerBackground(d.image_url);
+      }
+
+      // Show queue card
+      document.getElementById('queue-card').style.display = '';
+      document.getElementById('queue-count').textContent = '(' + d.queue_total + ')';
+    }
+  } catch(e) {}
+}
+
 async function pollSnapcast() {
   try {
     const r = await fetch('/api/snapcast/status');
@@ -299,11 +495,16 @@ async function pollSnapcast() {
       const art = document.getElementById('np-art');
       if (np.artUrl) { art.src = np.artUrl; art.style.display = ''; }
       else { art.style.display = 'none'; }
+      // Progress handled by pollMaQueue
     } else {
       document.getElementById('np-title').textContent = 'Nothing playing';
       document.getElementById('np-artist').textContent = '';
       document.getElementById('np-album').textContent = '';
       document.getElementById('np-art').style.display = 'none';
+      npDuration = 0; npElapsed = 0; npElapsedAt = 0;
+      document.getElementById('np-pos').textContent = '0:00';
+      document.getElementById('np-dur').textContent = '0:00';
+      document.getElementById('progress-fill').style.width = '0%';
     }
 
     // Playback controls
@@ -320,9 +521,13 @@ async function pollSnapcast() {
     let html = d.streams.map(s =>
       `<span class="badge ${s.status === 'playing' ? 'badge-green' : 'badge-orange'}">${s.status}</span> `
     ).join('');
-    html += d.clients.map(c =>
-      `<div>${c.connected ? '🟢' : '🔴'} ${c.name} ${c.volume}%${c.muted ? ' 🔇' : ''}</div>`
-    ).join('');
+    if (d.clients.length === 0) {
+      html += '<div style="color:var(--dim);margin-top:4px">No clients connected</div>';
+    } else {
+      html += d.clients.map(c =>
+        `<div>${c.connected ? '🟢' : '🔴'} ${c.name} ${c.volume}%${c.muted ? ' 🔇' : ''}</div>`
+      ).join('');
+    }
     document.getElementById('snapcast-info').innerHTML = html;
   } catch (e) {}
 }
@@ -389,11 +594,115 @@ async function svcAction(action) {
   if (action === 'reboot') document.body.innerHTML = '<h1 style="text-align:center;margin-top:40vh">Rebooting...</h1>';
 }
 
-pollStats(); pollBt(); pollAudio(); pollSnapcast();
+const typeIdx = { pBuffer: 0, pShortBuffer: 1, pMiniBuffer: 2 };
+async function pollJitter() {
+  try {
+    const r = await fetch('/api/snapcast/jitter');
+    const d = await r.json();
+    jitterChart.data.datasets.forEach(ds => ds.data = []);
+    (d.points || []).forEach(p => {
+      const i = typeIdx[p.type];
+      if (i !== undefined) jitterChart.data.datasets[i].data.push({ x: p.ts, y: Math.round(p.us / 1000 * 10) / 10 });
+    });
+    jitterChart.update();
+  } catch(e) {}
+}
+
+// --- Queue Browser ---
+async function loadQueue() {
+  if (!currentQueueId) return;
+  const list = document.getElementById('queue-list');
+  try {
+    const r = await fetch(`/api/ma/queue/items?queue_id=${currentQueueId}&limit=100`);
+    const d = await r.json();
+    if (!d.items || d.items.length === 0) { list.innerHTML = '<div style="color:var(--dim);padding:8px">Empty</div>'; return; }
+    // Find current index from np-queue-pos
+    const qpText = document.getElementById('np-queue-pos').textContent;
+    const curIdx = qpText ? parseInt(qpText.split('/')[0]) - 1 : -1;
+    list.innerHTML = d.items.map((item, i) => {
+      const isCurrent = i === curIdx;
+      const dur = fmtTime(item.duration);
+      return `<div class="q-item${isCurrent ? ' q-current' : ''}" onclick="queuePlay('${item.queue_item_id}')">
+        <span class="q-idx">${i + 1}</span>
+        <span class="q-name">${item.name}</span>
+        <span class="q-dur">${dur}</span>
+        <span class="q-actions" onclick="event.stopPropagation()">
+          <button onclick="queueMove('${item.queue_item_id}',-1)" title="Up">↑</button>
+          <button onclick="queueMove('${item.queue_item_id}',1)" title="Down">↓</button>
+          <button onclick="queueDelete('${item.queue_item_id}')" title="Remove">✕</button>
+        </span>
+      </div>`;
+    }).join('');
+  } catch(e) { list.innerHTML = '<div style="color:var(--dim)">Error loading queue</div>'; }
+}
+
+function toggleQueue() {
+  const list = document.getElementById('queue-list');
+  const btn = document.getElementById('btn-queue-toggle');
+  queueVisible = !queueVisible;
+  if (queueVisible) { loadQueue(); list.style.display = ''; btn.textContent = 'Hide'; }
+  else { list.style.display = 'none'; btn.textContent = 'Show'; }
+}
+
+async function queueAction(action, extra = {}) {
+  if (!currentQueueId) return;
+  await fetch('/api/ma/queue/action', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, queue_id: currentQueueId, ...extra })
+  });
+  if (queueVisible) setTimeout(loadQueue, 500);
+}
+function queuePlay(id) { queueAction('play_index', { queue_item_id: id }); }
+function queueDelete(id) { queueAction('delete', { queue_item_id: id }); }
+function queueMove(id, shift) { queueAction('move', { queue_item_id: id, pos_shift: shift }); }
+function clearQueue() { if (confirm('Clear entire queue?')) queueAction('clear'); }
+
+function toggleShuffle() {
+  queueAction('shuffle', { enabled: !currentShuffle });
+}
+function toggleRepeat() {
+  const modes = ['off', 'all', 'one'];
+  const next = modes[(modes.indexOf(currentRepeat) + 1) % modes.length];
+  queueAction('repeat', { mode: next });
+}
+
+// --- Album Art Background ---
+function updatePlayerBackground(imageUrl) {
+  document.getElementById('player-bg').style.backgroundImage = `url('/api/ma/imageproxy?url=${encodeURIComponent(imageUrl)}')`;
+}
+
+// --- SSE Connection for Real-Time Updates ---
+function connectSSE() {
+  const es = new EventSource('/api/ma/events');
+  es.addEventListener('queue_updated', function(e) {
+    // Real-time queue state update — refresh MA data
+    pollMaQueue();
+  });
+  es.addEventListener('queue_items_updated', function(e) {
+    if (queueVisible) loadQueue();
+  });
+  es.addEventListener('queue_time_updated', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.elapsed_time != null) {
+        npElapsed = d.elapsed_time;
+        npElapsedAt = d.elapsed_time_last_updated || (Date.now() / 1000);
+        npServerTime = Date.now() / 1000;
+        updateProgress();
+      }
+    } catch(ex) {}
+  });
+  es.onerror = function() { setTimeout(connectSSE, 5000); es.close(); };
+}
+connectSSE();
+
+pollStats(); pollBt(); pollAudio(); pollSnapcast(); pollJitter(); pollMaQueue();
 setInterval(pollStats, POLL_MS);
 setInterval(pollBt, 10000);
 setInterval(pollAudio, 10000);
 setInterval(pollSnapcast, 5000);
+setInterval(pollJitter, 10000);
+setInterval(pollMaQueue, 10000); // Reduced from 3s — SSE handles real-time updates
 </script>
 </body>
 </html>

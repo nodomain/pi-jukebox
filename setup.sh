@@ -206,8 +206,8 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-echo "==> Installing Flask for web dashboard"
-apt-get install -y -qq python3-flask
+echo "==> Installing Flask and websocket-client for web dashboard"
+apt-get install -y -qq python3-flask python3-websocket
 
 echo "==> Deploying web dashboard"
 mkdir -p /opt/jukebox/templates
@@ -224,6 +224,8 @@ User=${JUKEBOX_USER}
 Group=${JUKEBOX_USER}
 WorkingDirectory=/opt/jukebox
 Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
+Environment=SNAPCAST_SERVER=${SNAPCAST_SERVER}
+Environment=MA_TOKEN=${MA_TOKEN}
 ExecStart=/usr/bin/python3 /opt/jukebox/app.py
 Restart=always
 RestartSec=5

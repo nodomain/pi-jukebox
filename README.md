@@ -118,7 +118,16 @@ After reboot, the Pi auto-connects and starts streaming. Done.
 
 ## Music Assistant Settings
 
-Recommended player settings in Music Assistant (Settings → Players → your player):
+### Snapcast Server (Settings → Player Providers → Snapcast)
+
+| Setting | Value | Why |
+|---|---|---|
+| Buffer size | **1500 ms** | Larger buffer gives the Pi more time to compensate WiFi/BT jitter (default 1000) |
+| Chunk size | **40 ms** | Larger chunks = less overhead, fewer timing issues (default 26) |
+| Transport codec | **FLAC** | Lossless transport — decoded on the Pi |
+| Initial volume | 25 | Sane default for new clients |
+
+### Player Settings (Settings → Players → your player)
 
 | Setting | Value | Why |
 |---|---|---|
@@ -127,6 +136,25 @@ Recommended player settings in Music Assistant (Settings → Players → your pl
 | Normalization target | **-14 LUFS** | Default -17 is too quiet for Bluetooth + party speaker. -14 is louder while the limiter prevents clipping |
 | Smart Fades | ✅ Standard Crossfade | Intelligently crossfades between tracks — detects fade-outs and hard endings |
 | Crossfade | 8s | Fallback duration when Smart Fades can't determine the optimal transition |
+
+### Performance Notes
+
+The Pi Zero 2 W streams via WiFi → Snapcast → PipeWire → Bluetooth A2DP. This chain introduces inherent timing jitter. Buffer warnings in the snapclient logs (`pShortBuffer`, `pBuffer`, `pMiniBuffer`) are normal and expected — Snapcast compensates internally. As long as there are no audible glitches, these warnings are cosmetic.
+
+ALSA output is not an option because PipeWire is required for Bluetooth A2DP routing. The `--player pulse` flag works because PipeWire provides PulseAudio compatibility.
+
+### Snapcast Buffer Tuning
+
+Change server-side buffer settings in Music Assistant UI (Settings → Player Providers → Snapcast) to reduce timing jitter on the Pi Zero 2 W:
+
+| Setting | Old | New |
+|---|---|---|
+| Buffer size | 1000 ms | **1500 ms** |
+| Chunk size | 26 ms | **40 ms** |
+
+No changes on the Pi client side — `--player pulse` stays because PipeWire handles Bluetooth.
+
+To roll back: open Music Assistant → Settings → Player Providers → Snapcast, set buffer to 1000 and chunk to 26, save. MA will restart the Snapcast server automatically.
 
 ## Web Dashboard
 
