@@ -35,7 +35,7 @@ loginctl enable-linger "${JUKEBOX_USER}"
 echo "==> Installing packages"
 apt-get update -qq
 apt-get install -y -qq snapclient bluez pipewire pipewire-pulse wireplumber \
-    libspa-0.2-bluetooth pulseaudio-utils rfkill
+    libspa-0.2-bluetooth pulseaudio-utils rfkill cava
 
 echo "==> Configuring snapclient"
 cat > /etc/default/snapclient << EOF
@@ -212,6 +212,7 @@ apt-get install -y -qq python3-flask python3-websocket
 echo "==> Deploying web dashboard"
 mkdir -p /opt/jukebox/templates
 cp -r "${SCRIPT_DIR}/web/app.py" /opt/jukebox/
+cp -r "${SCRIPT_DIR}/web/cava.conf" /opt/jukebox/
 cp -r "${SCRIPT_DIR}/web/templates/" /opt/jukebox/templates/
 
 cat > /etc/systemd/system/jukebox-web.service << EOF
