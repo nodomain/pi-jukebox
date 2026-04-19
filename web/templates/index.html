@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Jukebox Pi</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+:root { --bg: #0f1117; --card: #1a1d27; --border: #2a2d37; --text: #e0e0e0; --dim: #888; --accent: #4a9eff; --green: #4caf50; --red: #f44336; --orange: #ff9800; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 12px; max-width: 1200px; margin: 0 auto; -webkit-tap-highlight-color: transparent; }
+h1 { font-size: 1.2em; margin-bottom: 12px; text-align: center; }
+h2 { font-size: 0.85em; color: var(--dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.stat-val { font-size: 1.6em; font-weight: 700; }
+.stat-label { color: var(--dim); font-size: 0.8em; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; font-weight: 600; }
+.badge-green { background: #1b3a1b; color: var(--green); }
+.badge-red { background: #3a1b1b; color: var(--red); }
+.badge-orange { background: #3a2e1b; color: var(--orange); }
+canvas { max-height: 150px; width: 100% !important; }
+button { background: var(--accent); color: #fff; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 0.9em; touch-action: manipulation; }
+button:active { opacity: 0.7; }
+button:disabled { opacity: 0.3; }
+button.danger { background: var(--red); }
+button.secondary { background: var(--border); color: var(--text); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.device-list { list-style: none; max-height: 180px; overflow-y: auto; }
+.device-list li { padding: 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.device-list li:last-child { border: none; }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
+.vol-row { display: flex; align-items: center; gap: 10px; }
+.vol-row span { min-width: 36px; text-align: right; font-size: 0.9em; }
+.grid-2 { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+.grid-4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
+.grid-3 { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
+@media (min-width: 500px) { .grid-4 { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 640px) { .grid-2 { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 900px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } .grid-2 { grid-template-columns: repeat(2, 1fr); } }
+
+/* Now Playing */
+.now-playing { display: flex; gap: 12px; align-items: center; }
+.now-playing img { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+@media (min-width: 500px) { .now-playing img { width: 128px; height: 128px; } }
+@media (min-width: 900px) { .now-playing img { width: 160px; height: 160px; } }
+.now-playing .np-info { flex: 1; min-width: 0; }
+.now-playing .np-title { font-weight: 700; font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing .np-artist { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-playing .np-album { color: var(--dim); font-size: 0.75em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Playback controls */
+.playback-controls { display: flex; justify-content: center; gap: 16px; margin-top: 10px; }
+.playback-controls button { background: none; border: none; color: var(--text); font-size: 1.8em; padding: 4px 12px; cursor: pointer; border-radius: 50%; }
+.playback-controls button:active { background: var(--border); }
+.playback-controls button:disabled { color: #333; }
+
+/* Throttle flags */
+.throttle-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+.throttle-flags .flag { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; }
+.flag-ok { background: #1b3a1b; color: var(--green); }
+.flag-warn { background: #3a1b1b; color: var(--red); }
+</style>
+</head>
+<body>
+
+<h1>🎵 Jukebox Pi</h1>
+
+<!-- Now Playing + Controls -->
+<div class="card">
+  <h2>Now Playing</h2>
+  <div class="now-playing" id="now-playing">
+    <img id="np-art" src="" alt="">
+    <div class="np-info">
+      <div class="np-title" id="np-title">—</div>
+      <div class="np-artist" id="np-artist"></div>
+      <div class="np-album" id="np-album"></div>
+    </div>
+  </div>
+  <div class="playback-controls" id="playback-controls">
+    <button id="btn-prev" onclick="snapControl('previous')" disabled>⏮</button>
+    <button id="btn-playpause" onclick="togglePlayPause()" disabled>▶</button>
+    <button id="btn-next" onclick="snapControl('next')" disabled>⏭</button>
+  </div>
+  <div class="vol-row" style="margin-top:10px">
+    <span>🔊</span>
+    <input type="range" id="vol-slider" min="0" max="100" value="30">
+    <span id="vol-val">—</span>
+  </div>
+</div>
+
+<!-- Status Cards -->
+<div class="grid-4">
+  <div class="card">
+    <div class="stat-label">Bluetooth</div>
+    <div id="bt-status"><span class="badge badge-red">—</span></div>
+    <div id="bt-codec" class="stat-label" style="margin-top:2px"></div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Temp</div>
+    <div class="stat-val" id="temp">—</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">CPU</div>
+    <div class="stat-val" id="cpu-freq">—</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">WiFi</div>
+    <div class="stat-val" id="wifi-signal">—</div>
+  </div>
+</div>
+
+<!-- Throttle -->
+<div class="card">
+  <h2>System Health</h2>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <div><span class="stat-label">Mem:</span> <strong id="mem">—</strong></div>
+    <div><span class="stat-label">Load:</span> <span id="load">—</span></div>
+    <div><span class="stat-label">Uptime:</span> <span id="uptime">—</span></div>
+    <div><span class="stat-label">SD Writes:</span> <span id="sd-writes">—</span></div>
+  </div>
+  <div style="margin-top:6px">
+    <span class="stat-label">Throttle:</span>
+    <span class="throttle-flags" id="throttle-flags"></span>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="grid-3">
+  <div class="card"><h2>Temp & Mem</h2><canvas id="chart-system"></canvas></div>
+  <div class="card"><h2>CPU MHz</h2><canvas id="chart-cpu"></canvas></div>
+  <div class="card"><h2>WiFi Signal</h2><canvas id="chart-wifi"></canvas></div>
+</div>
+<div class="grid-3">
+  <div class="card"><h2>System Load</h2><canvas id="chart-load"></canvas></div>
+  <div class="card"><h2>Traffic KB/s</h2><canvas id="chart-traffic"></canvas></div>
+  <div class="card"><h2>SD Writes</h2><canvas id="chart-sd"></canvas></div>
+</div>
+
+<!-- Bottom sections -->
+<div class="grid-3">
+  <div class="card">
+    <h2>Snapcast</h2>
+    <div id="snapcast-info" class="stat-label">Loading...</div>
+  </div>
+  <div class="card">
+    <h2>Bluetooth</h2>
+    <div class="btn-row">
+      <button onclick="btScan()" id="btn-scan">Scan</button>
+      <button onclick="btDisconnect()" class="secondary">Disconnect</button>
+    </div>
+    <ul class="device-list" id="bt-devices"></ul>
+  </div>
+  <div class="card">
+    <h2>Services</h2>
+    <div class="btn-row">
+      <button onclick="svcAction('restart-snapclient')">Restart Snapclient</button>
+      <button onclick="svcAction('restart-bt')">Restart BT</button>
+      <button onclick="if(confirm('Reboot?'))svcAction('reboot')" class="danger">Reboot</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MAX_POINTS = 100;
+const POLL_MS = 3000;
+const labels = [];
+let prevRx = 0, prevTx = 0, prevSdWrites = 0, firstPoll = true;
+let currentStreamId = '';
+let isPlaying = false;
+
+function makeChart(id, datasets, yOpts = {}) {
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#888', boxWidth: 10, font: { size: 10 } } },
+        tooltip: { enabled: true, mode: 'index', intersect: false,
+          callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { ...yOpts, ticks: { color: '#888', font: { size: 9 } }, grid: { color: '#2a2d37' } }
+      },
+      elements: { point: { radius: 0, hitRadius: 8, hoverRadius: 4 }, line: { tension: 0.3, borderWidth: 1.5 } }
+    }
+  });
+}
+
+function ds(label, color) {
+  return { label, data: [], borderColor: color, backgroundColor: color + '20', fill: true };
+}
+
+const sysChart = makeChart('chart-system', [ds('Temp °C', '#ff9800'), ds('Mem %', '#4a9eff')], { min: 0, max: 100 });
+const cpuChart = makeChart('chart-cpu', [ds('MHz', '#4caf50')], { min: 0 });
+const wifiChart = makeChart('chart-wifi', [ds('dBm', '#4a9eff')]);
+const loadChart = makeChart('chart-load', [ds('1m', '#4a9eff'), ds('5m', '#4caf50'), ds('15m', '#ff9800')], { min: 0 });
+const trafficChart = makeChart('chart-traffic', [ds('RX', '#4caf50'), ds('TX', '#ff9800')], { min: 0 });
+const sdChart = makeChart('chart-sd', [ds('Writes', '#f44336')], { min: 0 });
+
+function pushData(chart, ...vals) {
+  vals.forEach((v, i) => {
+    chart.data.datasets[i].data.push(v);
+    if (chart.data.datasets[i].data.length > MAX_POINTS) chart.data.datasets[i].data.shift();
+  });
+}
+
+function formatUptime(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60); return h > 0 ? h+'h '+m+'m' : m+'m'; }
+
+function renderThrottle(t) {
+  const el = document.getElementById('throttle-flags');
+  if (!t || !t.raw) { el.textContent = '—'; return; }
+  const flags = [
+    ['UV', t.under_voltage], ['Freq⬇', t.freq_capped], ['Throt', t.throttled], ['TempLim', t.soft_temp_limit],
+    ['UV*', t.under_voltage_occurred], ['Freq⬇*', t.freq_capped_occurred], ['Throt*', t.throttled_occurred], ['TempLim*', t.soft_temp_limit_occurred],
+  ];
+  const active = flags.filter(f => f[1]);
+  if (active.length === 0) {
+    el.innerHTML = '<span class="flag flag-ok">All OK</span>';
+  } else {
+    el.innerHTML = active.map(f => `<span class="flag flag-warn">${f[0]}</span>`).join('');
+  }
+}
+
+async function pollStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    const now = new Date().toLocaleTimeString();
+    labels.push(now);
+    if (labels.length > MAX_POINTS) labels.shift();
+
+    document.getElementById('temp').textContent = d.temp.toFixed(1) + '°';
+    document.getElementById('cpu-freq').textContent = Math.round(d.cpu_freq_mhz) + 'M';
+    const memPct = d.mem_total_kb ? Math.round(d.mem_used_kb / d.mem_total_kb * 100) : 0;
+    document.getElementById('mem').textContent = memPct + '%';
+    document.getElementById('wifi-signal').textContent = d.wifi.signal || '—';
+    document.getElementById('uptime').textContent = formatUptime(d.uptime);
+    document.getElementById('load').textContent = (d.load || []).join(' ');
+    document.getElementById('sd-writes').textContent = d.sd_writes;
+    renderThrottle(d.throttle);
+
+    const sigNum = parseFloat(d.wifi.signal) || -90;
+    pushData(sysChart, d.temp, memPct); sysChart.update();
+    pushData(cpuChart, d.cpu_freq_mhz); cpuChart.update();
+    pushData(wifiChart, sigNum); wifiChart.update();
+    const l = (d.load || []).map(parseFloat);
+    if (l.length === 3) { pushData(loadChart, l[0], l[1], l[2]); loadChart.update(); }
+
+    const rx = d.wifi.rx_bytes || 0, tx = d.wifi.tx_bytes || 0;
+    if (!firstPoll) {
+      pushData(trafficChart, (rx-prevRx)/1024/(POLL_MS/1000), (tx-prevTx)/1024/(POLL_MS/1000)); trafficChart.update();
+      pushData(sdChart, d.sd_writes - prevSdWrites); sdChart.update();
+    }
+    prevRx = rx; prevTx = tx; prevSdWrites = d.sd_writes; firstPoll = false;
+  } catch (e) { console.error('poll error', e); }
+}
+
+async function pollBt() {
+  try {
+    const r = await fetch('/api/bt/status');
+    const d = await r.json();
+    document.getElementById('bt-status').innerHTML = d.connected
+      ? `<span class="badge badge-green">${d.name || 'Connected'}</span>`
+      : '<span class="badge badge-red">Off</span>';
+    document.getElementById('bt-codec').textContent = d.codec ? d.codec.toUpperCase() : '';
+  } catch (e) {}
+}
+
+async function pollAudio() {
+  try {
+    const r = await fetch('/api/audio/status');
+    const d = await r.json();
+    const def = d.sinks.find(s => s.default);
+    if (def && def.volume !== null) {
+      document.getElementById('vol-slider').value = Math.round(def.volume * 100);
+      document.getElementById('vol-val').textContent = Math.round(def.volume * 100) + '%';
+    }
+  } catch (e) {}
+}
+
+async function pollSnapcast() {
+  try {
+    const r = await fetch('/api/snapcast/status');
+    const d = await r.json();
+    if (d.error) { document.getElementById('snapcast-info').textContent = d.error; return; }
+
+    // Now Playing
+    const np = d.now_playing;
+    if (np) {
+      document.getElementById('np-title').textContent = np.title || '—';
+      document.getElementById('np-artist').textContent = np.artist || '';
+      document.getElementById('np-album').textContent = np.album || '';
+      const art = document.getElementById('np-art');
+      if (np.artUrl) { art.src = np.artUrl; art.style.display = ''; }
+      else { art.style.display = 'none'; }
+    } else {
+      document.getElementById('np-title').textContent = 'Nothing playing';
+      document.getElementById('np-artist').textContent = '';
+      document.getElementById('np-album').textContent = '';
+      document.getElementById('np-art').style.display = 'none';
+    }
+
+    // Playback controls
+    const c = d.controls || {};
+    currentStreamId = c.streamId || '';
+    isPlaying = d.streams.some(s => s.status === 'playing');
+    const btn = document.getElementById('btn-playpause');
+    btn.textContent = isPlaying ? '⏸' : '▶';
+    btn.disabled = isPlaying ? !c.canPause : !c.canPlay;
+    document.getElementById('btn-prev').disabled = !c.canGoPrevious;
+    document.getElementById('btn-next').disabled = !c.canGoNext;
+
+    // Snapcast info
+    let html = d.streams.map(s =>
+      `<span class="badge ${s.status === 'playing' ? 'badge-green' : 'badge-orange'}">${s.status}</span> `
+    ).join('');
+    html += d.clients.map(c =>
+      `<div>${c.connected ? '🟢' : '🔴'} ${c.name} ${c.volume}%${c.muted ? ' 🔇' : ''}</div>`
+    ).join('');
+    document.getElementById('snapcast-info').innerHTML = html;
+  } catch (e) {}
+}
+
+async function snapControl(action) {
+  if (!currentStreamId) return;
+  await fetch('/api/snapcast/control', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, streamId: currentStreamId })
+  });
+  setTimeout(pollSnapcast, 500);
+}
+
+function togglePlayPause() {
+  snapControl(isPlaying ? 'pause' : 'play');
+}
+
+async function btScan() {
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  try {
+    const r = await fetch('/api/bt/scan', { method: 'POST' });
+    const d = await r.json();
+    document.getElementById('bt-devices').innerHTML = d.devices.map(dev =>
+      `<li><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dev.name}</span><button onclick="btConnect('${dev.mac}')" style="flex-shrink:0">Connect</button></li>`
+    ).join('');
+  } catch (e) {}
+  btn.disabled = false; btn.textContent = 'Scan';
+}
+
+async function btConnect(mac) {
+  const r = await fetch('/api/bt/connect', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mac })
+  });
+  const d = await r.json();
+  alert(d.success ? 'Connected!' : 'Failed: ' + d.result);
+  pollBt();
+}
+
+async function btDisconnect() {
+  const r = await fetch('/api/bt/status');
+  const d = await r.json();
+  if (d.mac) {
+    await fetch('/api/bt/disconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: d.mac })
+    });
+  }
+  pollBt();
+}
+
+document.getElementById('vol-slider').addEventListener('input', async function () {
+  const vol = this.value / 100;
+  document.getElementById('vol-val').textContent = this.value + '%';
+  await fetch('/api/audio/volume', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ volume: vol })
+  });
+});
+
+async function svcAction(action) {
+  await fetch(`/api/service/${action}`, { method: 'POST' });
+  if (action === 'reboot') document.body.innerHTML = '<h1 style="text-align:center;margin-top:40vh">Rebooting...</h1>';
+}
+
+pollStats(); pollBt(); pollAudio(); pollSnapcast();
+setInterval(pollStats, POLL_MS);
+setInterval(pollBt, 10000);
+setInterval(pollAudio, 10000);
+setInterval(pollSnapcast, 5000);
+</script>
+</body>
+</html>

@@ -62,6 +62,39 @@ cat > /etc/NetworkManager/conf.d/wifi-powersave.conf << 'EOF'
 wifi.powersave = 2
 EOF
 
+echo "==> Creating WiFi roaming helper"
+cat > /usr/local/bin/wifi-roam << 'ROAM'
+#!/usr/bin/env bash
+# WiFi roaming helper - checks signal strength and triggers rescan if weak
+THRESHOLD=-70
+IFACE=wlan0
+while true; do
+    SIGNAL=$(iw dev $IFACE link 2>/dev/null | grep signal | awk '{print $2}')
+    if [ -n "$SIGNAL" ] && [ "$SIGNAL" -lt "$THRESHOLD" ] 2>/dev/null; then
+        nmcli device wifi rescan ifname $IFACE 2>/dev/null
+        sleep 5
+        nmcli device wifi connect --ifname $IFACE 2>/dev/null || true
+    fi
+    sleep 30
+done
+ROAM
+chmod +x /usr/local/bin/wifi-roam
+
+cat > /etc/systemd/system/wifi-roam.service << 'EOF'
+[Unit]
+Description=WiFi roaming helper
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+ExecStart=/usr/local/bin/wifi-roam
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo "==> Disabling WirePlumber seat monitoring (headless fix)"
 mkdir -p /etc/wireplumber/wireplumber.conf.d
 cat > /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf << 'EOF'
@@ -173,8 +206,34 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+echo "==> Installing Flask for web dashboard"
+apt-get install -y -qq python3-flask
+
+echo "==> Deploying web dashboard"
+mkdir -p /opt/jukebox/templates
+cp -r "${SCRIPT_DIR}/web/app.py" /opt/jukebox/
+cp -r "${SCRIPT_DIR}/web/templates/" /opt/jukebox/templates/
+
+cat > /etc/systemd/system/jukebox-web.service << EOF
+[Unit]
+Description=Jukebox Pi Web Dashboard
+After=network.target pipewire.service
+
+[Service]
+User=${JUKEBOX_USER}
+Group=${JUKEBOX_USER}
+WorkingDirectory=/opt/jukebox
+Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
+ExecStart=/usr/bin/python3 /opt/jukebox/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
-systemctl enable snapclient bt-autoconnect bluetooth
+systemctl enable snapclient bt-autoconnect bluetooth wifi-roam jukebox-web
 
 echo "==> Disabling unnecessary timers"
 systemctl disable --now \
