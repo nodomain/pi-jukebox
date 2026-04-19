@@ -61,7 +61,7 @@ cp .env.example .env
 ### 3. Install
 
 ```bash
-scp .env setup.sh pair-bt.sh <user>@<host>:~
+scp .env scripts/setup.sh scripts/pair-bt.sh <user>@<host>:~
 ssh <user>@<host> "chmod +x setup.sh pair-bt.sh && sudo ./setup.sh"
 ```
 
@@ -175,8 +175,7 @@ The dashboard is mobile-first (responsive up to 1200px) with a dark theme.
 
 To redeploy after changes:
 ```bash
-scp -r web/ <user>@<host>:~/web
-ssh <user>@<host> "sudo cp -r ~/web/* /opt/jukebox/ && sudo systemctl restart jukebox-web"
+./scripts/deploy.sh
 ```
 
 ## Troubleshooting
