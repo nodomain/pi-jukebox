@@ -2,13 +2,129 @@
 """Jukebox Pi Web Dashboard."""
 
 import json
+import os
+import queue
 import re
 import subprocess
-from flask import Flask, jsonify, render_template, request
+import threading
+import time
+import urllib.request
+
+from flask import Flask, Response, jsonify, render_template, request
 
 app = Flask(__name__)
 
-SNAPCAST_SERVER = "192.168.10.250"
+SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "192.168.10.250")
+MA_TOKEN = os.environ.get("MA_TOKEN", "")
+
+# --- WebSocket to Music Assistant ---
+# Shared state updated by WS thread, read by SSE/API
+ma_state = {
+    "queue": {},  # current playing queue object
+    "lock": threading.Lock(),
+    "connected": False,
+}
+# SSE subscribers: list of queue.Queue objects
+sse_clients = []
+sse_lock = threading.Lock()
+
+
+def ma_ws_thread():
+    """Background thread: maintain WebSocket connection to Music Assistant."""
+    try:
+        import websocket
+    except ImportError:
+        app.logger.error("websocket-client not installed, WS disabled")
+        return
+
+    url = f"ws://{SNAPCAST_SERVER}:8095/ws"
+    msg_id = 0
+
+    def next_id():
+        nonlocal msg_id
+        msg_id += 1
+        return str(msg_id)
+
+    def broadcast(event_type, data):
+        """Send SSE event to all connected browsers."""
+        msg = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+        with sse_lock:
+            dead = []
+            for q in sse_clients:
+                try:
+                    q.put_nowait(msg)
+                except Exception:
+                    dead.append(q)
+            for q in dead:
+                sse_clients.remove(q)
+
+    while True:
+        try:
+            ws = websocket.create_connection(url, timeout=10)
+            # Server sends info message first
+            ws.recv()
+            # Auth
+            ws.send(json.dumps({
+                "message_id": next_id(),
+                "command": "auth",
+                "args": {"token": MA_TOKEN},
+            }))
+            auth_resp = json.loads(ws.recv())
+            if not auth_resp.get("result", {}).get("authenticated"):
+                app.logger.error("MA WS auth failed")
+                ws.close()
+                time.sleep(10)
+                continue
+
+            ma_state["connected"] = True
+            app.logger.info("MA WebSocket connected")
+
+            # Request initial queue state
+            ws.send(json.dumps({
+                "message_id": next_id(),
+                "command": "player_queues/all",
+                "args": {},
+            }))
+
+            while True:
+                raw = ws.recv()
+                if not raw:
+                    break
+                msg = json.loads(raw)
+
+                # Handle events
+                event = msg.get("event")
+                if event in (
+                    "queue_updated", "queue_items_updated",
+                    "queue_time_updated", "player_updated",
+                ):
+                    data = msg.get("data", {})
+                    # Update cached queue state for the playing queue
+                    if event == "queue_updated":
+                        with ma_state["lock"]:
+                            ma_state["queue"] = data
+                    broadcast(event, data)
+
+                # Handle command responses (e.g. initial player_queues/all)
+                result = msg.get("result")
+                if result and isinstance(result, list):
+                    for q in result:
+                        if q.get("state") == "playing":
+                            with ma_state["lock"]:
+                                ma_state["queue"] = q
+                            broadcast("queue_updated", q)
+                            break
+
+        except Exception as e:
+            app.logger.warning(f"MA WS error: {e}")
+            ma_state["connected"] = False
+        time.sleep(5)  # reconnect delay
+
+
+# Start WS thread
+if MA_TOKEN:
+    t = threading.Thread(target=ma_ws_thread, daemon=True)
+    t.start()
 
 
 def run(cmd, timeout=5):
@@ -313,6 +429,8 @@ def snapcast_status():
             streams.append(si)
             if s["status"] == "playing" and meta:
                 now_playing = si["metadata"]
+                now_playing["duration"] = meta.get("duration", 0)
+                now_playing["position"] = s.get("properties", {}).get("position", 0)
 
         controls = {}
         for s in server["streams"]:
@@ -362,6 +480,307 @@ def snapcast_control():
         "Stream.Control", {"id": stream_id, "command": cmd}
     )
     return jsonify({"result": result or "ok"})
+
+
+# --- Music Assistant API ---
+
+
+def ma_rpc(command, args=None):
+    """Call MA HTTP API."""
+    payload = {"message_id": "rpc", "command": command}
+    if args:
+        payload["args"] = args
+    raw = run(
+        f"curl -s -m 5 'http://{SNAPCAST_SERVER}:8095/api' "
+        f"-H 'Content-Type: application/json' "
+        f"-H 'Authorization: Bearer {MA_TOKEN}' "
+        f"-d '{json.dumps(payload)}'",
+        timeout=7,
+    )
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        # HTTP API returns result directly (no wrapper)
+        return data
+    except json.JSONDecodeError:
+        return None
+
+
+@app.route("/api/ma/events")
+def ma_events():
+    """SSE endpoint: stream MA WebSocket events to browser."""
+    def stream():
+        q = queue.Queue(maxsize=50)
+        with sse_lock:
+            sse_clients.append(q)
+        try:
+            # Send initial state
+            with ma_state["lock"]:
+                if ma_state["queue"]:
+                    yield f"event: queue_updated\ndata: {json.dumps(ma_state['queue'])}\n\n"
+            yield f"event: connected\ndata: {json.dumps({'ws': ma_state['connected']})}\n\n"
+            while True:
+                try:
+                    msg = q.get(timeout=30)
+                    yield msg
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+        finally:
+            with sse_lock:
+                if q in sse_clients:
+                    sse_clients.remove(q)
+
+    return Response(stream(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/ma/queue")
+def ma_queue():
+    """Get active player queue from Music Assistant for track position."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+
+    # Try cached WS state first, fall back to HTTP
+    q = None
+    with ma_state["lock"]:
+        if ma_state["queue"] and ma_state["queue"].get("state") == "playing":
+            q = ma_state["queue"]
+
+    if not q:
+        raw = run(
+            f"curl -s -m 3 'http://{SNAPCAST_SERVER}:8095/api' "
+            f"-H 'Content-Type: application/json' "
+            f"-H 'Authorization: Bearer {MA_TOKEN}' "
+            f"""-d '{{"message_id":"1","command":"player_queues/all"}}'""",
+            timeout=5,
+        )
+        if not raw:
+            return jsonify({"error": "MA unreachable"}), 500
+        try:
+            queues = json.loads(raw)
+            if isinstance(queues, dict):
+                queues = queues.get("result", [])
+            for candidate in queues:
+                if candidate.get("state") == "playing":
+                    q = candidate
+                    break
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    if not q:
+        return jsonify({"elapsed_time": 0, "duration": 0, "name": ""})
+
+    try:
+        ci = q.get("current_item") or {}
+        ni = q.get("next_item") or {}
+        sd = ci.get("streamdetails") or {}
+        af = sd.get("audio_format") or {}
+        mi = ci.get("media_item") or {}
+        meta = mi.get("metadata") or {}
+
+        # Audio quality badge
+        codec = af.get("content_type", "")
+        codec_type = af.get("codec_type", "")
+        sr = af.get("sample_rate", 0)
+        bits = af.get("bit_depth", 0)
+        lossy_codecs = {"ogg", "aac", "mp3", "opus", "vorbis", "mp4"}
+        lossy = codec in lossy_codecs or codec_type in lossy_codecs
+        if lossy:
+            quality = "LQ"
+        elif sr > 48000 or bits > 16:
+            quality = "HR"
+        else:
+            quality = "HQ"
+
+        # Album art URL
+        images = meta.get("images") or []
+        image_url = ""
+        for img in images:
+            if img.get("type") == "thumb" and img.get("path"):
+                image_url = img["path"]
+                break
+        if not image_url and images:
+            image_url = images[0].get("path", "")
+
+        # Fetch lyrics via track API
+        lyrics = ""
+        track_id = mi.get("item_id")
+        track_uri = mi.get("uri", "")
+        if track_id and track_uri:
+            provider = "library"
+            if "://" in track_uri:
+                provider = track_uri.split("://")[0]
+            ly_raw = run(
+                f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
+                f"-H 'Content-Type: application/json' "
+                f"-H 'Authorization: Bearer {MA_TOKEN}' "
+                f"""-d '{{"message_id":"2","command":"music/tracks/get","args":{{"item_id":"{track_id}","provider_instance_id_or_domain":"{provider}"}}}}'""",
+                timeout=3,
+            )
+            try:
+                ly_data = json.loads(ly_raw) if ly_raw else {}
+                ly_meta = ly_data.get("metadata") or {}
+                lyrics = (
+                    ly_meta.get("lrc_lyrics")
+                    or ly_meta.get("lyrics")
+                    or ""
+                )
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return jsonify(
+            {
+                "elapsed_time": q.get("elapsed_time", 0),
+                "elapsed_time_last_updated": q.get(
+                    "elapsed_time_last_updated", 0
+                ),
+                "duration": ci.get("duration", 0),
+                "name": ci.get("name", ""),
+                "server_time": time.time(),
+                "next_track": ni.get("name", ""),
+                "next_duration": ni.get("duration", 0),
+                "quality": quality,
+                "codec": codec_type or codec,
+                "sample_rate": sr,
+                "bit_depth": bits,
+                "queue_id": q.get("queue_id", ""),
+                "queue_index": q.get("current_index", 0),
+                "queue_total": q.get("items", 0),
+                "shuffle": q.get("shuffle_enabled", False),
+                "repeat": q.get("repeat_mode", "off"),
+                "target_loudness": sd.get("target_loudness"),
+                "popularity": meta.get("popularity"),
+                "lyrics": lyrics,
+                "image_url": image_url,
+            }
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ma/queue/items")
+def ma_queue_items():
+    """Get queue items list."""
+    queue_id = request.args.get("queue_id", "")
+    limit = int(request.args.get("limit", "50"))
+    offset = int(request.args.get("offset", "0"))
+    if not queue_id:
+        return jsonify({"error": "Missing queue_id"}), 400
+    data = ma_rpc("player_queues/items", {
+        "queue_id": queue_id, "limit": limit, "offset": offset,
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    # Return simplified items
+    items = []
+    for item in (data if isinstance(data, list) else []):
+        mi = item.get("media_item") or {}
+        artists = mi.get("artists") or []
+        artist_name = artists[0].get("name", "") if artists else ""
+        # Extract from combined name "Artist - Title"
+        name = item.get("name", "")
+        items.append({
+            "queue_item_id": item.get("queue_item_id", ""),
+            "name": name,
+            "duration": item.get("duration", 0),
+            "sort_index": item.get("sort_index", 0),
+            "artist": artist_name,
+        })
+    return jsonify({"items": items})
+
+
+@app.route("/api/ma/queue/action", methods=["POST"])
+def ma_queue_action():
+    """Perform queue action: delete, move, play_index, clear."""
+    body = request.json or {}
+    action = body.get("action", "")
+    queue_id = body.get("queue_id", "")
+    if not queue_id:
+        return jsonify({"error": "Missing queue_id"}), 400
+
+    cmd_map = {
+        "delete": ("player_queues/delete_item", {
+            "queue_id": queue_id,
+            "queue_item_id": body.get("queue_item_id", ""),
+        }),
+        "move": ("player_queues/move_item", {
+            "queue_id": queue_id,
+            "queue_item_id": body.get("queue_item_id", ""),
+            "pos_shift": body.get("pos_shift", 0),
+        }),
+        "play_index": ("player_queues/play_index", {
+            "queue_id": queue_id,
+            "index": body.get("queue_item_id", ""),
+        }),
+        "clear": ("player_queues/clear", {"queue_id": queue_id}),
+        "shuffle": ("player_queues/shuffle", {
+            "queue_id": queue_id,
+            "shuffle_enabled": body.get("enabled", False),
+        }),
+        "repeat": ("player_queues/repeat", {
+            "queue_id": queue_id,
+            "repeat_mode": body.get("mode", "off"),
+        }),
+    }
+    if action not in cmd_map:
+        return jsonify({"error": "Unknown action"}), 400
+
+    command, args = cmd_map[action]
+    result = ma_rpc(command, args)
+    return jsonify({"result": result or "ok"})
+
+
+@app.route("/api/ma/imageproxy")
+def ma_imageproxy():
+    """Proxy album art images from MA to avoid CORS issues."""
+    url = request.args.get("url", "")
+    if not url:
+        return "", 400
+    # Proxy through MA's imageproxy
+    proxy_url = (
+        f"http://{SNAPCAST_SERVER}:8095/imageproxy"
+        f"?path={urllib.request.quote(url, safe='')}&size=200&fmt=jpeg"
+    )
+    try:
+        req = urllib.request.Request(proxy_url)
+        req.add_header("Authorization", f"Bearer {MA_TOKEN}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = resp.read()
+            return Response(data, mimetype="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"})
+    except Exception:
+        return "", 502
+
+
+# --- Snapcast Buffer/Jitter API ---
+
+
+@app.route("/api/snapcast/jitter")
+def snapcast_jitter():
+    """Parse recent snapclient journal logs for buffer jitter values."""
+    raw = run(
+        "journalctl -u snapclient --no-pager --since '2 minutes ago' "
+        "-o short-unix 2>/dev/null | grep -E 'p(Short|Mini)?Buffer'",
+        timeout=3,
+    )
+    points = []
+    for line in raw.splitlines():
+        parts = line.split(" ", 1)
+        if len(parts) < 2:
+            continue
+        try:
+            ts = float(parts[0])
+        except ValueError:
+            continue
+        msg = parts[1]
+        # Extract buffer type and value in µs
+        m = re.search(r"(pMiniBuffer|pShortBuffer|pBuffer).+?:\s*(-?\d+)", msg)
+        if m:
+            points.append(
+                {"ts": ts, "type": m.group(1), "us": int(m.group(2))}
+            )
+    return jsonify({"points": points})
 
 
 # --- Service Control ---
