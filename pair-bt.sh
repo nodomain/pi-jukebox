@@ -35,14 +35,14 @@ bluetoothctl trust "${BT_MAC}"
 sleep 2
 
 echo "==> Connecting to ${BT_MAC}"
-bluetoothctl connect "${BT_MAC}"
+bluetoothctl connect "${BT_MAC}" || echo "NOTE: Connect failed, watchdog will handle this after reboot."
 sleep 3
 
 echo "==> Verifying connection"
 if bluetoothctl info "${BT_MAC}" | grep -q "Connected: yes"; then
     echo "Connected!"
 else
-    echo "WARNING: Connection may have failed. Check manually."
+    echo "Not connected yet — this is normal. Watchdog will connect after reboot."
 fi
 
 echo "==> Enabling overlay filesystem (read-only root)"

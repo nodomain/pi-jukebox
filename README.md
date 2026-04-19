@@ -7,7 +7,7 @@ Designed for battery/portable use — overlay filesystem protects the SD card fr
 ## Features
 
 - Snapcast client with PipeWire/PulseAudio Bluetooth output
-- Auto-connects to paired Bluetooth speaker on boot (retries until speaker is available)
+- Auto-connects to paired Bluetooth speaker on boot and reconnects when speaker is power-cycled
 - Read-only root filesystem (overlay FS) — safe to pull power at any time
 - Fully reproducible setup via two scripts
 
@@ -82,8 +82,9 @@ This pairs the speaker, enables overlay FS, and reboots. Done.
 | PipeWire + WirePlumber | Bluetooth A2DP audio backend |
 | bluez | `AutoEnable=true`, speaker paired and trusted |
 | WirePlumber | Seat monitoring disabled (headless fix) |
-| bt-autoconnect.service | Retries BT connection every 15s, restarts snapclient on success |
+| bt-autoconnect.service | Watchdog — checks BT every 15s, reconnects if speaker was power-cycled |
 | Overlay FS | Root + boot read-only, all writes go to RAM |
+| WiFi power save | Disabled — prevents latency spikes during audio streaming |
 | Disabled timers | apt-daily, man-db, fstrim, e2scrub (reduce SD writes) |
 
 ### Key files on the Pi
@@ -92,9 +93,23 @@ This pairs the speaker, enables overlay FS, and reboots. Done.
 |---|---|
 | `/etc/default/snapclient` | Snapcast server + player config |
 | `/etc/systemd/system/snapclient.service.d/override.conf` | Run snapclient as user (for PulseAudio access) |
-| `/etc/systemd/system/bt-autoconnect.service` | Auto-connect + snapclient restart |
+| `/etc/systemd/system/bt-autoconnect.service` | Bluetooth watchdog service |
+| `/usr/local/bin/bt-watchdog` | Monitors BT connection, reconnects every 15s |
 | `/etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf` | Headless Bluetooth fix |
 | `/etc/bluetooth/main.conf` | Bluetooth auto-enable |
+| `/etc/NetworkManager/conf.d/wifi-powersave.conf` | WiFi power save disabled |
+
+## Music Assistant Settings
+
+Recommended player settings in Music Assistant (Settings → Players → your player):
+
+| Setting | Value | Why |
+|---|---|---|
+| Volume normalization | ✅ enabled | Consistent volume across tracks |
+| Clipping limiter | ✅ enabled | Prevents distortion |
+| Normalization target | **-14 LUFS** | Default -17 is too quiet for Bluetooth + party speaker. -14 is louder while the limiter prevents clipping |
+| Smart Fades | ✅ Standard Crossfade | Intelligently crossfades between tracks — detects fade-outs and hard endings |
+| Crossfade | 8s | Fallback duration when Smart Fades can't determine the optimal transition |
 
 ## Making Changes
 

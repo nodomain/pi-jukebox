@@ -55,6 +55,13 @@ echo "==> Configuring Bluetooth"
 sed -i 's/^#AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
 sed -i 's/^AutoEnable=false/AutoEnable=true/' /etc/bluetooth/main.conf
 
+echo "==> Disabling WiFi power save (reduces audio latency)"
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/wifi-powersave.conf << 'EOF'
+[connection]
+wifi.powersave = 2
+EOF
+
 echo "==> Disabling WirePlumber seat monitoring (headless fix)"
 mkdir -p /etc/wireplumber/wireplumber.conf.d
 cat > /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf << 'EOF'
@@ -65,7 +72,20 @@ wireplumber.profiles = {
 }
 EOF
 
-echo "==> Creating Bluetooth auto-connect service"
+echo "==> Creating Bluetooth watchdog"
+cat > /usr/local/bin/bt-watchdog << EOF
+#!/usr/bin/env bash
+MAC="${BT_MAC}"
+sleep 10
+while true; do
+    if ! bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
+        bluetoothctl connect "\$MAC" 2>/dev/null
+    fi
+    sleep 15
+done
+EOF
+chmod +x /usr/local/bin/bt-watchdog
+
 cat > /etc/systemd/system/bt-autoconnect.service << EOF
 [Unit]
 Description=Auto-connect to ${BT_DEVICE_NAME} via Bluetooth
@@ -73,15 +93,9 @@ After=bluetooth.service
 Wants=bluetooth.service
 
 [Service]
-Type=oneshot
-ExecStartPre=/bin/sleep 5
-ExecStart=/usr/bin/bluetoothctl connect ${BT_MAC}
-ExecStartPost=/bin/sleep 3
-ExecStartPost=/usr/bin/systemctl restart snapclient
-Restart=on-failure
-RestartSec=15
-StartLimitIntervalSec=0
-RemainAfterExit=true
+ExecStart=/usr/local/bin/bt-watchdog
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
