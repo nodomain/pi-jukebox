@@ -2,13 +2,14 @@
 
 Raspberry Pi Zero 2 W as a headless [Snapcast](https://github.com/badaix/snapcast) client, streaming audio from [Music Assistant](https://music-assistant.io/) to a Bluetooth speaker via A2DP.
 
-Designed for battery/portable use — overlay filesystem protects the SD card from corruption on hard power-off.
+Designed for battery/portable use — tmpfs mounts and volatile journal eliminate SD card writes during normal operation. Safe to pull power.
 
 ## Features
 
 - Snapcast client with PipeWire/PulseAudio Bluetooth output
+- SBC-XQ codec for better audio quality over Bluetooth
 - Auto-connects to paired Bluetooth speaker on boot and reconnects when speaker is power-cycled
-- Read-only root filesystem (overlay FS) — safe to pull power at any time
+- Zero SD card writes during normal operation (tmpfs + volatile journal)
 - Fully reproducible setup via two scripts
 
 ## Architecture
@@ -20,7 +21,7 @@ Snapcast Server
     ↓ network
 Snapcast Client (this Pi)
     ↓ PulseAudio (PipeWire)
-Bluetooth A2DP
+Bluetooth A2DP (SBC-XQ)
     ↓ wireless
 Bluetooth Speaker
 ```
@@ -69,10 +70,10 @@ The Pi will reboot after setup.
 Put your Bluetooth speaker in pairing mode, then:
 
 ```bash
-ssh <user>@<host> "sudo ./pair-bt.sh"
+ssh <user>@<host> "sudo ./pair-bt.sh && sudo reboot"
 ```
 
-This pairs the speaker, enables overlay FS, and reboots. Done.
+After reboot, the Pi auto-connects and starts streaming. Done.
 
 ## What Gets Configured
 
@@ -81,9 +82,9 @@ This pairs the speaker, enables overlay FS, and reboots. Done.
 | snapclient | PulseAudio output, connects to Snapcast server |
 | PipeWire + WirePlumber | Bluetooth A2DP audio backend |
 | bluez | `AutoEnable=true`, speaker paired and trusted |
-| WirePlumber | Seat monitoring disabled (headless fix) |
-| bt-autoconnect.service | Watchdog — checks BT every 15s, reconnects if speaker was power-cycled |
-| Overlay FS | Root + boot read-only, all writes go to RAM |
+| WirePlumber | Seat monitoring disabled (headless fix), SBC-XQ codec preferred |
+| bt-autoconnect.service | Watchdog — checks BT every 15s, reconnects and switches to SBC-XQ codec |
+| SD card protection | tmpfs on /var/log + /var/tmp, volatile journal, ext4 commit=120s |
 | WiFi power save | Disabled — prevents latency spikes during audio streaming |
 | Disabled timers | apt-daily, man-db, fstrim, e2scrub (reduce SD writes) |
 
@@ -94,10 +95,12 @@ This pairs the speaker, enables overlay FS, and reboots. Done.
 | `/etc/default/snapclient` | Snapcast server + player config |
 | `/etc/systemd/system/snapclient.service.d/override.conf` | Run snapclient as user (for PulseAudio access) |
 | `/etc/systemd/system/bt-autoconnect.service` | Bluetooth watchdog service |
-| `/usr/local/bin/bt-watchdog` | Monitors BT connection, reconnects every 15s |
+| `/usr/local/bin/bt-watchdog` | Monitors BT, reconnects, switches to SBC-XQ, restarts snapclient |
 | `/etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf` | Headless Bluetooth fix |
+| `/etc/wireplumber/wireplumber.conf.d/51-bluez-sbc-xq.conf` | Prefer SBC-XQ codec over SBC |
 | `/etc/bluetooth/main.conf` | Bluetooth auto-enable |
 | `/etc/NetworkManager/conf.d/wifi-powersave.conf` | WiFi power save disabled |
+| `/etc/systemd/journald.conf.d/volatile.conf` | Journal in RAM only |
 
 ## Music Assistant Settings
 
@@ -111,20 +114,6 @@ Recommended player settings in Music Assistant (Settings → Players → your pl
 | Smart Fades | ✅ Standard Crossfade | Intelligently crossfades between tracks — detects fade-outs and hard endings |
 | Crossfade | 8s | Fallback duration when Smart Fades can't determine the optimal transition |
 
-## Making Changes
-
-With overlay FS active, all changes are lost on reboot. To persist changes:
-
-```bash
-# Disable overlay (needs two reboots due to read-only boot partition)
-ssh <user>@<host> "sudo mount -o remount,rw /boot/firmware; sudo raspi-config nonint disable_overlayfs; sudo raspi-config nonint disable_bootro; sudo reboot"
-
-# Make your changes...
-
-# Re-enable overlay
-ssh <user>@<host> "sudo raspi-config nonint enable_overlayfs; sudo raspi-config nonint enable_bootro; sudo reboot"
-```
-
 ## Troubleshooting
 
 ### No audio after boot
@@ -133,7 +122,8 @@ ssh <user>@<host> "sudo raspi-config nonint enable_overlayfs; sudo raspi-config 
 # Check Bluetooth connection
 ssh <user>@<host> "sudo bluetoothctl info <BT_MAC> | grep Connected"
 
-# If disconnected, reconnect + restart snapclient
+# If disconnected, the watchdog should reconnect within 15s.
+# To force it:
 ssh <user>@<host> "sudo bluetoothctl connect <BT_MAC> && sudo systemctl restart snapclient"
 ```
 
@@ -144,6 +134,14 @@ ssh <user>@<host> "wpctl status"
 ```
 
 Look for your speaker under Sinks and Snapcast stream with `[active]`.
+
+### Check codec
+
+```bash
+ssh <user>@<host> "pw-dump 2>&1 | grep api.bluez5.codec"
+```
+
+Should show `sbc_xq`. If it shows `sbc`, the watchdog will switch on next reconnect.
 
 ### Check service logs
 
@@ -161,6 +159,13 @@ ssh <user>@<host> "cat /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf
 ```
 
 Should contain `monitor.bluez.seat-monitoring = disabled` inside `wireplumber.profiles.main`.
+
+### Verify SD card writes
+
+```bash
+# Take two readings 30s apart — write count (field 8) should not increase
+ssh <user>@<host> "cat /proc/diskstats | grep mmcblk0 | head -1; sleep 30; cat /proc/diskstats | grep mmcblk0 | head -1"
+```
 
 ## Release
 

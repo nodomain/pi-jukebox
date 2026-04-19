@@ -72,18 +72,90 @@ wireplumber.profiles = {
 }
 EOF
 
+echo "==> Configuring SBC-XQ codec preference"
+cat > /etc/wireplumber/wireplumber.conf.d/51-bluez-sbc-xq.conf << 'EOF'
+monitor.bluez.rules = [
+  {
+    matches = [
+      { device.name = "~bluez_card.*" }
+    ]
+    actions = {
+      update-props = {
+        bluez5.a2dp.codec = [ sbc_xq sbc ]
+        bluez5.auto-connect = [ a2dp_sink ]
+      }
+    }
+  }
+]
+
+device.profile.priority.rules = [
+  {
+    matches = [
+      { device.name = "~bluez_card.*" }
+    ]
+    actions = {
+      set-profile-priorities = [
+        { name = "a2dp-sink-sbc_xq", priority = 10000 }
+        { name = "a2dp-sink", priority = 5000 }
+      ]
+    }
+  }
+]
+EOF
+
+echo "==> Reducing SD card writes"
+# tmpfs for log and tmp
+FSTAB_ROOT=$(grep 'PARTUUID.*/$' /etc/fstab || grep 'PARTUUID.*/[[:space:]]' /etc/fstab | head -1)
+ROOT_UUID=$(echo "$FSTAB_ROOT" | awk '{print $1}')
+BOOT_UUID=$(grep 'boot/firmware' /etc/fstab | awk '{print $1}')
+cat > /etc/fstab << EOF
+proc            /proc           proc    defaults          0       0
+${BOOT_UUID}  /boot/firmware  vfat    defaults          0       2
+${ROOT_UUID}  /               ext4    defaults,noatime,commit=120  0       1
+tmpfs           /var/log        tmpfs   defaults,noatime,nosuid,nodev,noexec,size=20m  0  0
+tmpfs           /var/tmp        tmpfs   defaults,noatime,nosuid,nodev,size=20m  0  0
+EOF
+
+# Volatile journal (RAM only)
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/volatile.conf << 'EOF'
+[Journal]
+Storage=volatile
+RuntimeMaxUse=10M
+EOF
+
 echo "==> Creating Bluetooth watchdog"
-cat > /usr/local/bin/bt-watchdog << EOF
+CARD_NAME="bluez_card.${BT_MAC//:/_}"
+cat > /usr/local/bin/bt-watchdog << WATCHDOG
 #!/usr/bin/env bash
 MAC="${BT_MAC}"
+CARD="${CARD_NAME}"
+PW_ENV="XDG_RUNTIME_DIR=/run/user/${UID_NUM}"
 sleep 10
 while true; do
     if ! bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
         bluetoothctl connect "\$MAC" 2>/dev/null
+        sleep 5
+        if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
+            # Switch to SBC-XQ codec
+            sleep 2
+            DEV_ID=\$(su - ${JUKEBOX_USER} -c "\$PW_ENV pw-cli list-objects 2>/dev/null" | grep -B20 "\$CARD" | grep "^.id " | tail -1 | awk '{print \$2}' | tr -d ',')
+            if [ -n "\$DEV_ID" ]; then
+                su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl set-profile \$DEV_ID 131074" 2>/dev/null
+                for i in \$(seq 1 10); do
+                    sleep 1
+                    if su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl status 2>/dev/null" | grep -q "vol:"; then
+                        break
+                    fi
+                done
+            fi
+            sleep 2
+            systemctl restart snapclient
+        fi
     fi
     sleep 15
 done
-EOF
+WATCHDOG
 chmod +x /usr/local/bin/bt-watchdog
 
 cat > /etc/systemd/system/bt-autoconnect.service << EOF
@@ -114,7 +186,7 @@ systemctl disable --now \
     2>/dev/null || true
 
 echo ""
-echo "=== Base setup complete ==="
+echo "=== Setup complete ==="
 echo "Next steps:"
 echo "  1. Reboot: sudo reboot"
 echo "  2. Put ${BT_DEVICE_NAME} in Bluetooth pairing mode"
