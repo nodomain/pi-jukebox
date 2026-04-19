@@ -99,9 +99,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
     </div>
   </div>
   <div class="playback-controls" id="playback-controls">
+    <button id="np-shuffle" onclick="toggleShuffle()" style="display:none; font-size:1.4em" title="Shuffle">🔀</button>
     <button id="btn-prev" onclick="snapControl('previous')" disabled>⏮</button>
     <button id="btn-playpause" onclick="togglePlayPause()" disabled>▶</button>
     <button id="btn-next" onclick="snapControl('next')" disabled>⏭</button>
+    <button id="np-repeat" onclick="toggleRepeat()" style="display:none; font-size:1.4em" title="Repeat">🔁</button>
   </div>
   <div style="margin-top:8px; display:flex; align-items:center; gap:8px; font-size:0.75em; color:var(--dim)">
     <span id="np-pos">0:00</span>
@@ -117,8 +119,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
     <span id="np-quality" class="badge" style="display:none"></span>
     <span id="np-codec" style="opacity:0.6"></span>
     <span id="np-queue-pos"></span>
-    <span id="np-shuffle" class="ctrl-btn" style="display:none; cursor:pointer" onclick="toggleShuffle()">🔀</span>
-    <span id="np-repeat" class="ctrl-btn" style="display:none; cursor:pointer" onclick="toggleRepeat()"></span>
     <span id="np-loudness" style="opacity:0.6"></span>
     <span id="np-popularity" style="opacity:0.6"></span>
   </div>
@@ -511,13 +511,18 @@ async function pollSnapcast() {
 
     // Playback controls
     const c = d.controls || {};
-    currentStreamId = c.streamId || '';
+    if (c.streamId) currentStreamId = c.streamId;
+    // Fall back: find any stream with metadata (MA stream, even if idle/paused)
+    if (!currentStreamId) {
+      const maStream = d.streams.find(s => s.metadata);
+      if (maStream) currentStreamId = maStream.id;
+    }
     isPlaying = d.streams.some(s => s.status === 'playing');
     const btn = document.getElementById('btn-playpause');
     btn.textContent = isPlaying ? '⏸' : '▶';
-    btn.disabled = isPlaying ? !c.canPause : !c.canPlay;
-    document.getElementById('btn-prev').disabled = !c.canGoPrevious;
-    document.getElementById('btn-next').disabled = !c.canGoNext;
+    btn.disabled = !currentStreamId;
+    document.getElementById('btn-prev').disabled = !c.canGoPrevious && !currentStreamId;
+    document.getElementById('btn-next').disabled = !c.canGoNext && !currentStreamId;
 
     // Snapcast info
     let html = d.streams.map(s =>
