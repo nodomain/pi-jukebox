@@ -10,7 +10,7 @@ import threading
 import time
 import urllib.request
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request  # pylint: disable=import-error
 
 app = Flask(__name__)
 
@@ -29,10 +29,47 @@ sse_clients = []
 sse_lock = threading.Lock()
 
 
+def _ws_broadcast(event_type, data):
+    """Send SSE event to all connected browsers."""
+    msg = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+    with sse_lock:
+        dead = []
+        for q in sse_clients:
+            try:
+                q.put_nowait(msg)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            sse_clients.remove(q)
+
+
+def _ws_handle_message(msg):
+    """Process a single WS message, update state and broadcast."""
+    event = msg.get("event")
+    if event in (
+        "queue_updated", "queue_items_updated",
+        "queue_time_updated", "player_updated",
+    ):
+        data = msg.get("data", {})
+        if event == "queue_updated":
+            with ma_state["lock"]:
+                ma_state["queue"] = data
+        _ws_broadcast(event, data)
+
+    result = msg.get("result")
+    if result and isinstance(result, list):
+        for q in result:
+            if q.get("state") == "playing":
+                with ma_state["lock"]:
+                    ma_state["queue"] = q
+                _ws_broadcast("queue_updated", q)
+                break
+
+
 def ma_ws_thread():
     """Background thread: maintain WebSocket connection to Music Assistant."""
     try:
-        import websocket
+        import websocket  # pylint: disable=import-outside-toplevel,import-error
     except ImportError:
         app.logger.error("websocket-client not installed, WS disabled")
         return
@@ -45,25 +82,10 @@ def ma_ws_thread():
         msg_id += 1
         return str(msg_id)
 
-    def broadcast(event_type, data):
-        """Send SSE event to all connected browsers."""
-        msg = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-        with sse_lock:
-            dead = []
-            for q in sse_clients:
-                try:
-                    q.put_nowait(msg)
-                except Exception:
-                    dead.append(q)
-            for q in dead:
-                sse_clients.remove(q)
-
     while True:
         try:
             ws = websocket.create_connection(url, timeout=10)
-            # Server sends info message first
-            ws.recv()
-            # Auth
+            ws.recv()  # server info message
             ws.send(json.dumps({
                 "message_id": next_id(),
                 "command": "auth",
@@ -78,8 +100,6 @@ def ma_ws_thread():
 
             ma_state["connected"] = True
             app.logger.info("MA WebSocket connected")
-
-            # Request initial queue state
             ws.send(json.dumps({
                 "message_id": next_id(),
                 "command": "player_queues/all",
@@ -90,51 +110,29 @@ def ma_ws_thread():
                 raw = ws.recv()
                 if not raw:
                     break
-                msg = json.loads(raw)
+                _ws_handle_message(json.loads(raw))
 
-                # Handle events
-                event = msg.get("event")
-                if event in (
-                    "queue_updated", "queue_items_updated",
-                    "queue_time_updated", "player_updated",
-                ):
-                    data = msg.get("data", {})
-                    # Update cached queue state for the playing queue
-                    if event == "queue_updated":
-                        with ma_state["lock"]:
-                            ma_state["queue"] = data
-                    broadcast(event, data)
-
-                # Handle command responses (e.g. initial player_queues/all)
-                result = msg.get("result")
-                if result and isinstance(result, list):
-                    for q in result:
-                        if q.get("state") == "playing":
-                            with ma_state["lock"]:
-                                ma_state["queue"] = q
-                            broadcast("queue_updated", q)
-                            break
-
-        except Exception as e:
-            app.logger.warning(f"MA WS error: {e}")
+        except (OSError, ValueError) as e:
+            app.logger.warning("MA WS error: %s", e)
             ma_state["connected"] = False
-        time.sleep(5)  # reconnect delay
+        time.sleep(5)
 
 
 # Start WS thread
 if MA_TOKEN:
-    t = threading.Thread(target=ma_ws_thread, daemon=True)
-    t.start()
+    _ws_thread = threading.Thread(target=ma_ws_thread, daemon=True)
+    _ws_thread.start()
 
 
 def run(cmd, timeout=5):
     """Run a shell command and return stdout."""
     try:
         r = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+            cmd, shell=True, capture_output=True, text=True,
+            timeout=timeout, check=False,
         )
         return r.stdout.strip()
-    except (subprocess.TimeoutExpired, Exception):
+    except subprocess.TimeoutExpired:
         return ""
 
 
@@ -150,7 +148,8 @@ def snapcast_rpc(method, params=None):
         payload["params"] = params
     raw = run(
         f"curl -s -m 3 -X POST -H 'Content-Type: application/json' "
-        f"-d '{json.dumps(payload)}' http://{SNAPCAST_SERVER}:1780/jsonrpc"
+        f"-d '{json.dumps(payload)}' "
+        f"http://{SNAPCAST_SERVER}:1780/jsonrpc"
     )
     if not raw:
         return None
@@ -183,39 +182,15 @@ def decode_throttle(val):
 
 @app.route("/")
 def index():
+    """Serve the main dashboard page."""
     return render_template("index.html")
 
 
 # --- System Stats API ---
 
 
-@app.route("/api/stats")
-def stats():
-    # CPU temp
-    temp = run("vcgencmd measure_temp").replace("temp=", "").replace("'C", "")
-
-    # Uptime + load
-    uptime_raw = run("cat /proc/uptime").split()[0]
-    load = run("cat /proc/loadavg").split()[:3]
-
-    # Memory
-    meminfo = run("cat /proc/meminfo")
-    mem = {}
-    for line in meminfo.splitlines():
-        parts = line.split()
-        if parts[0] in ("MemTotal:", "MemAvailable:"):
-            mem[parts[0].rstrip(":")] = int(parts[1])
-    mem_used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
-    mem_total = mem.get("MemTotal", 0)
-
-    # CPU frequency
-    cpu_freq_raw = run("vcgencmd measure_clock arm")
-    cpu_freq = 0
-    m = re.search(r"=(\d+)", cpu_freq_raw)
-    if m:
-        cpu_freq = int(m.group(1)) / 1_000_000  # MHz
-
-    # WiFi
+def _parse_wifi():
+    """Parse WiFi stats from iw and /proc/net/dev."""
     wifi = {}
     station = run("/usr/sbin/iw dev wlan0 station dump")
     for line in station.splitlines():
@@ -234,15 +209,39 @@ def stats():
         elif line.startswith("freq:"):
             wifi["freq"] = line.split(":")[1].strip()
 
-    # WiFi traffic
     net = run("cat /proc/net/dev | grep wlan0").split()
     if len(net) > 9:
         wifi["rx_bytes"] = int(net[1])
         wifi["tx_bytes"] = int(net[9])
         wifi["rx_packets"] = int(net[2])
         wifi["tx_packets"] = int(net[10])
+    return wifi
 
-    # SD card writes
+
+@app.route("/api/stats")
+def stats():
+    """Return system stats: temp, CPU, memory, WiFi, SD writes, throttle."""
+    temp = run("vcgencmd measure_temp").replace("temp=", "").replace("'C", "")
+    uptime_raw = run("cat /proc/uptime").split()[0]
+    load = run("cat /proc/loadavg").split()[:3]
+
+    meminfo = run("cat /proc/meminfo")
+    mem = {}
+    for line in meminfo.splitlines():
+        parts = line.split()
+        if parts[0] in ("MemTotal:", "MemAvailable:"):
+            mem[parts[0].rstrip(":")] = int(parts[1])
+    mem_used = mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)
+    mem_total = mem.get("MemTotal", 0)
+
+    cpu_freq_raw = run("vcgencmd measure_clock arm")
+    cpu_freq = 0
+    m = re.search(r"=(\d+)", cpu_freq_raw)
+    if m:
+        cpu_freq = int(m.group(1)) / 1_000_000
+
+    wifi = _parse_wifi()
+
     diskstats = run("cat /proc/diskstats | grep 'mmcblk0 '")
     sd_writes = 0
     if diskstats:
@@ -250,24 +249,21 @@ def stats():
         if len(parts) > 7:
             sd_writes = int(parts[7])
 
-    # Throttle
     throttle_raw = run("vcgencmd get_throttled").replace("throttled=", "")
     throttle = decode_throttle(throttle_raw)
     throttle["raw"] = throttle_raw
 
-    return jsonify(
-        {
-            "temp": float(temp) if temp else 0,
-            "uptime": float(uptime_raw) if uptime_raw else 0,
-            "load": load,
-            "mem_used_kb": mem_used,
-            "mem_total_kb": mem_total,
-            "cpu_freq_mhz": cpu_freq,
-            "wifi": wifi,
-            "sd_writes": sd_writes,
-            "throttle": throttle,
-        }
-    )
+    return jsonify({
+        "temp": float(temp) if temp else 0,
+        "uptime": float(uptime_raw) if uptime_raw else 0,
+        "load": load,
+        "mem_used_kb": mem_used,
+        "mem_total_kb": mem_total,
+        "cpu_freq_mhz": cpu_freq,
+        "wifi": wifi,
+        "sd_writes": sd_writes,
+        "throttle": throttle,
+    })
 
 
 # --- Bluetooth API ---
@@ -275,6 +271,7 @@ def stats():
 
 @app.route("/api/bt/status")
 def bt_status():
+    """Return Bluetooth connection status and codec."""
     info = run("bluetoothctl info 2>/dev/null")
     connected = "Connected: yes" in info
     name = ""
@@ -287,7 +284,6 @@ def bt_status():
         elif line.startswith("Device"):
             mac = line.split()[1] if len(line.split()) > 1 else ""
 
-    # Get codec from PipeWire
     pw = run_pw("pw-dump 2>/dev/null")
     try:
         for obj in json.loads(pw):
@@ -304,6 +300,7 @@ def bt_status():
 
 @app.route("/api/bt/scan", methods=["POST"])
 def bt_scan():
+    """Scan for nearby Bluetooth devices."""
     run("bluetoothctl --timeout 10 scan on", timeout=15)
     devices_raw = run("bluetoothctl devices")
     devices = []
@@ -316,6 +313,7 @@ def bt_scan():
 
 @app.route("/api/bt/pair", methods=["POST"])
 def bt_pair():
+    """Pair with a Bluetooth device by MAC address."""
     mac = request.json.get("mac", "")
     if not re.match(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", mac):
         return jsonify({"error": "Invalid MAC"}), 400
@@ -326,6 +324,7 @@ def bt_pair():
 
 @app.route("/api/bt/connect", methods=["POST"])
 def bt_connect():
+    """Connect to a paired Bluetooth device."""
     mac = request.json.get("mac", "")
     if not re.match(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", mac):
         return jsonify({"error": "Invalid MAC"}), 400
@@ -335,6 +334,7 @@ def bt_connect():
 
 @app.route("/api/bt/disconnect", methods=["POST"])
 def bt_disconnect():
+    """Disconnect a Bluetooth device."""
     mac = request.json.get("mac", "")
     if not re.match(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", mac):
         return jsonify({"error": "Invalid MAC"}), 400
@@ -347,6 +347,7 @@ def bt_disconnect():
 
 @app.route("/api/audio/status")
 def audio_status():
+    """Return PipeWire audio sinks and default sink."""
     status = run_pw("wpctl status 2>/dev/null")
     sinks = []
     default_sink = ""
@@ -359,7 +360,8 @@ def audio_status():
             if line.strip() == "" or "Sources:" in line or "Filters:" in line:
                 break
             m = re.match(
-                r"\s*[│├└─\s]*(\*?)\s*(\d+)\.\s+(.+?)(?:\s+\[vol:\s*([\d.]+)\])?$",
+                r"\s*[│├└─\s]*(\*?)\s*(\d+)\.\s+(.+?)"
+                r"(?:\s+\[vol:\s*([\d.]+)\])?$",
                 line,
             )
             if m:
@@ -379,6 +381,7 @@ def audio_status():
 
 @app.route("/api/audio/volume", methods=["POST"])
 def audio_volume():
+    """Set PipeWire default sink volume."""
     vol = request.json.get("volume")
     if vol is None:
         return jsonify({"error": "Missing volume"}), 400
@@ -392,6 +395,7 @@ def audio_volume():
 
 @app.route("/api/snapcast/status")
 def snapcast_status():
+    """Return Snapcast server status: clients, streams, now playing."""
     try:
         result = snapcast_rpc("Server.GetStatus")
         if not result:
@@ -402,17 +406,15 @@ def snapcast_status():
         for g in server["groups"]:
             stream_id = g["stream_id"]
             for c in g["clients"]:
-                clients.append(
-                    {
-                        "name": c["config"]["name"] or c["host"]["name"],
-                        "ip": c["host"]["ip"],
-                        "connected": c["connected"],
-                        "volume": c["config"]["volume"]["percent"],
-                        "muted": c["config"]["volume"]["muted"],
-                        "latency": c["config"].get("latency", 0),
-                        "stream": stream_id,
-                    }
-                )
+                clients.append({
+                    "name": c["config"]["name"] or c["host"]["name"],
+                    "ip": c["host"]["ip"],
+                    "connected": c["connected"],
+                    "volume": c["config"]["volume"]["percent"],
+                    "muted": c["config"]["volume"]["muted"],
+                    "latency": c["config"].get("latency", 0),
+                    "stream": stream_id,
+                })
 
         streams = []
         now_playing = None
@@ -430,7 +432,8 @@ def snapcast_status():
             if s["status"] == "playing" and meta:
                 now_playing = si["metadata"]
                 now_playing["duration"] = meta.get("duration", 0)
-                now_playing["position"] = s.get("properties", {}).get("position", 0)
+                pos = s.get("properties", {}).get("position", 0)
+                now_playing["position"] = pos
 
         controls = {}
         for s in server["streams"]:
@@ -446,15 +449,13 @@ def snapcast_status():
                 }
                 break
 
-        return jsonify(
-            {
-                "clients": clients,
-                "streams": streams,
-                "now_playing": now_playing,
-                "controls": controls,
-            }
-        )
-    except Exception as e:
+        return jsonify({
+            "clients": clients,
+            "streams": streams,
+            "now_playing": now_playing,
+            "controls": controls,
+        })
+    except (KeyError, TypeError) as e:
         return jsonify({"error": str(e)}), 500
 
 
@@ -500,9 +501,7 @@ def ma_rpc(command, args=None):
     if not raw:
         return None
     try:
-        data = json.loads(raw)
-        # HTTP API returns result directly (no wrapper)
-        return data
+        return json.loads(raw)
     except json.JSONDecodeError:
         return None
 
@@ -515,11 +514,16 @@ def ma_events():
         with sse_lock:
             sse_clients.append(q)
         try:
-            # Send initial state
             with ma_state["lock"]:
                 if ma_state["queue"]:
-                    yield f"event: queue_updated\ndata: {json.dumps(ma_state['queue'])}\n\n"
-            yield f"event: connected\ndata: {json.dumps({'ws': ma_state['connected']})}\n\n"
+                    yield (
+                        f"event: queue_updated\n"
+                        f"data: {json.dumps(ma_state['queue'])}\n\n"
+                    )
+            yield (
+                f"event: connected\n"
+                f"data: {json.dumps({'ws': ma_state['connected']})}\n\n"
+            )
             while True:
                 try:
                     msg = q.get(timeout=30)
@@ -531,8 +535,81 @@ def ma_events():
                 if q in sse_clients:
                     sse_clients.remove(q)
 
-    return Response(stream(), mimetype="text/event-stream",
-                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return Response(
+        stream(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _fetch_active_queue():
+    """Fetch the active playing queue from MA, trying WS cache first.
+
+    Returns the queue dict, empty dict if no active queue, or None if
+    MA is unreachable.
+    """
+    with ma_state["lock"]:
+        if ma_state["queue"] and ma_state["queue"].get("state") == "playing":
+            return ma_state["queue"]
+
+    raw = run(
+        f"curl -s -m 3 'http://{SNAPCAST_SERVER}:8095/api' "
+        f"-H 'Content-Type: application/json' "
+        f"-H 'Authorization: Bearer {MA_TOKEN}' "
+        f"""-d '{{"message_id":"1","command":"player_queues/all"}}'""",
+        timeout=5,
+    )
+    if not raw:
+        return None
+    try:
+        queues = json.loads(raw)
+        if isinstance(queues, dict):
+            queues = queues.get("result", [])
+        for candidate in queues:
+            if candidate.get("state") == "playing":
+                return candidate
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return {}
+
+
+def _parse_queue_quality(audio_format):
+    """Determine audio quality badge from stream audio format."""
+    codec = audio_format.get("content_type", "")
+    codec_type = audio_format.get("codec_type", "")
+    sr = audio_format.get("sample_rate", 0)
+    bits = audio_format.get("bit_depth", 0)
+    lossy_codecs = {"ogg", "aac", "mp3", "opus", "vorbis", "mp4"}
+    lossy = codec in lossy_codecs or codec_type in lossy_codecs
+    if lossy:
+        quality = "LQ"
+    elif sr > 48000 or bits > 16:
+        quality = "HR"
+    else:
+        quality = "HQ"
+    return quality, codec, codec_type, sr, bits
+
+
+def _fetch_lyrics(track_id, track_uri):
+    """Fetch lyrics for a track from MA."""
+    provider = "library"
+    if "://" in track_uri:
+        provider = track_uri.split("://")[0]
+    ly_raw = run(
+        f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
+        f"-H 'Content-Type: application/json' "
+        f"-H 'Authorization: Bearer {MA_TOKEN}' "
+        f"-d '{{\"message_id\":\"2\","
+        f"\"command\":\"music/tracks/get\","
+        f"\"args\":{{\"item_id\":\"{track_id}\","
+        f"\"provider_instance_id_or_domain\":\"{provider}\"}}}}'",
+        timeout=3,
+    )
+    try:
+        ly_data = json.loads(ly_raw) if ly_raw else {}
+        ly_meta = ly_data.get("metadata") or {}
+        return ly_meta.get("lrc_lyrics") or ly_meta.get("lyrics") or ""
+    except (json.JSONDecodeError, TypeError):
+        return ""
 
 
 @app.route("/api/ma/queue")
@@ -541,33 +618,9 @@ def ma_queue():
     if not MA_TOKEN:
         return jsonify({"error": "MA_TOKEN not configured"}), 500
 
-    # Try cached WS state first, fall back to HTTP
-    q = None
-    with ma_state["lock"]:
-        if ma_state["queue"] and ma_state["queue"].get("state") == "playing":
-            q = ma_state["queue"]
-
-    if not q:
-        raw = run(
-            f"curl -s -m 3 'http://{SNAPCAST_SERVER}:8095/api' "
-            f"-H 'Content-Type: application/json' "
-            f"-H 'Authorization: Bearer {MA_TOKEN}' "
-            f"""-d '{{"message_id":"1","command":"player_queues/all"}}'""",
-            timeout=5,
-        )
-        if not raw:
-            return jsonify({"error": "MA unreachable"}), 500
-        try:
-            queues = json.loads(raw)
-            if isinstance(queues, dict):
-                queues = queues.get("result", [])
-            for candidate in queues:
-                if candidate.get("state") == "playing":
-                    q = candidate
-                    break
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
+    q = _fetch_active_queue()
+    if q is None:
+        return jsonify({"error": "MA unreachable"}), 500
     if not q:
         return jsonify({"elapsed_time": 0, "duration": 0, "name": ""})
 
@@ -579,21 +632,8 @@ def ma_queue():
         mi = ci.get("media_item") or {}
         meta = mi.get("metadata") or {}
 
-        # Audio quality badge
-        codec = af.get("content_type", "")
-        codec_type = af.get("codec_type", "")
-        sr = af.get("sample_rate", 0)
-        bits = af.get("bit_depth", 0)
-        lossy_codecs = {"ogg", "aac", "mp3", "opus", "vorbis", "mp4"}
-        lossy = codec in lossy_codecs or codec_type in lossy_codecs
-        if lossy:
-            quality = "LQ"
-        elif sr > 48000 or bits > 16:
-            quality = "HR"
-        else:
-            quality = "HQ"
+        quality, codec, codec_type, sr, bits = _parse_queue_quality(af)
 
-        # Album art URL
         images = meta.get("images") or []
         image_url = ""
         for img in images:
@@ -603,59 +643,35 @@ def ma_queue():
         if not image_url and images:
             image_url = images[0].get("path", "")
 
-        # Fetch lyrics via track API
         lyrics = ""
         track_id = mi.get("item_id")
         track_uri = mi.get("uri", "")
         if track_id and track_uri:
-            provider = "library"
-            if "://" in track_uri:
-                provider = track_uri.split("://")[0]
-            ly_raw = run(
-                f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
-                f"-H 'Content-Type: application/json' "
-                f"-H 'Authorization: Bearer {MA_TOKEN}' "
-                f"""-d '{{"message_id":"2","command":"music/tracks/get","args":{{"item_id":"{track_id}","provider_instance_id_or_domain":"{provider}"}}}}'""",
-                timeout=3,
-            )
-            try:
-                ly_data = json.loads(ly_raw) if ly_raw else {}
-                ly_meta = ly_data.get("metadata") or {}
-                lyrics = (
-                    ly_meta.get("lrc_lyrics")
-                    or ly_meta.get("lyrics")
-                    or ""
-                )
-            except (json.JSONDecodeError, TypeError):
-                pass
+            lyrics = _fetch_lyrics(track_id, track_uri)
 
-        return jsonify(
-            {
-                "elapsed_time": q.get("elapsed_time", 0),
-                "elapsed_time_last_updated": q.get(
-                    "elapsed_time_last_updated", 0
-                ),
-                "duration": ci.get("duration", 0),
-                "name": ci.get("name", ""),
-                "server_time": time.time(),
-                "next_track": ni.get("name", ""),
-                "next_duration": ni.get("duration", 0),
-                "quality": quality,
-                "codec": codec_type or codec,
-                "sample_rate": sr,
-                "bit_depth": bits,
-                "queue_id": q.get("queue_id", ""),
-                "queue_index": q.get("current_index", 0),
-                "queue_total": q.get("items", 0),
-                "shuffle": q.get("shuffle_enabled", False),
-                "repeat": q.get("repeat_mode", "off"),
-                "target_loudness": sd.get("target_loudness"),
-                "popularity": meta.get("popularity"),
-                "lyrics": lyrics,
-                "image_url": image_url,
-            }
-        )
-    except Exception as e:
+        return jsonify({
+            "elapsed_time": q.get("elapsed_time", 0),
+            "elapsed_time_last_updated": q.get("elapsed_time_last_updated", 0),
+            "duration": ci.get("duration", 0),
+            "name": ci.get("name", ""),
+            "server_time": time.time(),
+            "next_track": ni.get("name", ""),
+            "next_duration": ni.get("duration", 0),
+            "quality": quality,
+            "codec": codec_type or codec,
+            "sample_rate": sr,
+            "bit_depth": bits,
+            "queue_id": q.get("queue_id", ""),
+            "queue_index": q.get("current_index", 0),
+            "queue_total": q.get("items", 0),
+            "shuffle": q.get("shuffle_enabled", False),
+            "repeat": q.get("repeat_mode", "off"),
+            "target_loudness": sd.get("target_loudness"),
+            "popularity": meta.get("popularity"),
+            "lyrics": lyrics,
+            "image_url": image_url,
+        })
+    except (KeyError, TypeError) as e:
         return jsonify({"error": str(e)}), 500
 
 
@@ -672,13 +688,11 @@ def ma_queue_items():
     })
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
-    # Return simplified items
     items = []
     for item in (data if isinstance(data, list) else []):
         mi = item.get("media_item") or {}
         artists = mi.get("artists") or []
         artist_name = artists[0].get("name", "") if artists else ""
-        # Extract from combined name "Artist - Title"
         name = item.get("name", "")
         items.append({
             "queue_item_id": item.get("queue_item_id", ""),
@@ -737,19 +751,21 @@ def ma_imageproxy():
     url = request.args.get("url", "")
     if not url:
         return "", 400
-    # Proxy through MA's imageproxy
     proxy_url = (
         f"http://{SNAPCAST_SERVER}:8095/imageproxy"
-        f"?path={urllib.request.quote(url, safe='')}&size=200&fmt=jpeg"
+        f"?path={urllib.request.quote(url, safe='')}"
+        f"&size=200&fmt=jpeg"
     )
     try:
         req = urllib.request.Request(proxy_url)
         req.add_header("Authorization", f"Bearer {MA_TOKEN}")
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = resp.read()
-            return Response(data, mimetype="image/jpeg",
-                            headers={"Cache-Control": "public, max-age=3600"})
-    except Exception:
+            return Response(
+                data, mimetype="image/jpeg",
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
+    except (OSError, ValueError):
         return "", 502
 
 
@@ -774,8 +790,9 @@ def snapcast_jitter():
         except ValueError:
             continue
         msg = parts[1]
-        # Extract buffer type and value in µs
-        m = re.search(r"(pMiniBuffer|pShortBuffer|pBuffer).+?:\s*(-?\d+)", msg)
+        m = re.search(
+            r"(pMiniBuffer|pShortBuffer|pBuffer).+?:\s*(-?\d+)", msg
+        )
         if m:
             points.append(
                 {"ts": ts, "type": m.group(1), "us": int(m.group(2))}
@@ -788,16 +805,54 @@ def snapcast_jitter():
 
 @app.route("/api/service/<action>", methods=["POST"])
 def service_control(action):
+    """Restart services or reboot the Pi."""
     if action == "restart-snapclient":
         run("sudo systemctl restart snapclient")
         return jsonify({"result": "ok"})
-    elif action == "restart-bt":
+    if action == "restart-bt":
         run("sudo systemctl restart bt-autoconnect")
         return jsonify({"result": "ok"})
-    elif action == "reboot":
+    if action == "reboot":
         run("sudo reboot &")
         return jsonify({"result": "rebooting"})
     return jsonify({"error": "unknown action"}), 400
+
+
+# --- FFT Visualizer via cava ---
+
+CAVA_CONF = os.path.join(os.path.dirname(__file__), "cava.conf")
+
+
+@app.route("/api/fft/stream")
+def fft_stream():
+    """SSE endpoint: stream cava FFT data to browser."""
+    def stream():
+        env = os.environ.copy()
+        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+        proc = None
+        try:
+            with subprocess.Popen(
+                ["cava", "-p", CAVA_CONF],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=env, bufsize=1, text=True,
+            ) as proc:
+                for line in proc.stdout:
+                    line = line.strip()
+                    if line:
+                        yield f"data: {line}\n\n"
+        except OSError:
+            yield "data: error\n\n"
+        finally:
+            if proc is not None:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass
+
+    return Response(
+        stream(), mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == "__main__":
