@@ -33,9 +33,8 @@
 
 ## Shell Scripts
 
-- `scripts/setup.sh` — full Pi provisioning (run as root, reads `.env`)
+- `scripts/setup.sh` — full Pi provisioning, idempotent (run as root, reads `.env`)
 - `scripts/pair-bt.sh` — Bluetooth speaker pairing (run as root after setup + reboot)
-- `scripts/deploy.sh` — deploy web dashboard to the Pi (run from dev machine, reads `.env`)
 - All use `bash` with `set -euo pipefail`
 
 ## Configuration
@@ -45,23 +44,35 @@
 
 ## Deployment
 
-No CI/CD. Deploy script via SCP + SSH:
+No CI/CD. Makefile wraps SCP + SSH:
 
 ```bash
-./scripts/deploy.sh
+make deploy    # deploy web dashboard
+make setup     # full Pi provisioning
+make pair      # Bluetooth pairing
+make status    # check services + BT + Snapcast
+make logs      # tail service logs
 ```
+
+Or use the scripts directly: `./scripts/setup.sh`, `./scripts/pair-bt.sh`.
 
 ## Common Commands
 
 ```bash
 # Deploy web changes to Pi (from dev machine)
-./scripts/deploy.sh
+make deploy
 
-# Initial setup (on the Pi, as root)
-sudo ./setup.sh
+# Full Pi provisioning (from dev machine)
+make setup
 
-# Pair Bluetooth speaker (on the Pi, as root, speaker in pairing mode)
-sudo ./pair-bt.sh
+# Pair Bluetooth speaker (from dev machine, speaker in pairing mode)
+make pair
+
+# Check status
+make status
+
+# Tail logs
+make logs
 
 # Run Flask app locally (for development — won't have Pi hardware APIs)
 cd web && python3 app.py
