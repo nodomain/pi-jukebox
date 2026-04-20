@@ -219,9 +219,11 @@ CARD="${CARD_NAME}"
 PW_ENV="XDG_RUNTIME_DIR=/run/user/${UID_NUM}"
 WAS_CONNECTED=false
 sleep 10
-# Initialize state: stop snapclient if BT is not connected at startup
+# Initialize state: sync snapclient with BT connection
 if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
     WAS_CONNECTED=true
+    # Ensure snapclient is running if BT is already connected
+    systemctl is-active --quiet snapclient || systemctl start snapclient
 else
     systemctl stop snapclient 2>/dev/null || true
 fi
