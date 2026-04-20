@@ -143,8 +143,8 @@ make ssh       — open SSH session
 
 | Setting | Value | Why |
 |---|---|---|
-| Buffer size | 1500 ms | Compensates WiFi/BT jitter (default 1000) |
-| Chunk size | 40 ms | Less overhead, fewer timing issues (default 26) |
+| Buffer size | 2000 ms | Compensates WiFi/BT jitter |
+| Chunk size | 20 ms | Finer timing correction, less audible when Snapcast resyncs |
 | Transport codec | FLAC | Lossless transport, decoded on the Pi |
 
 ### Player
@@ -225,7 +225,9 @@ ssh <user>@<host> "journalctl -u jukebox-web --no-pager -n 20"
 
 ### Performance Notes
 
-Buffer warnings in snapclient logs (`pShortBuffer`, `pBuffer`, `pMiniBuffer`) are normal — Snapcast compensates internally. As long as there are no audible glitches, these are cosmetic.
+Buffer warnings in snapclient logs (`pShortBuffer`, `pBuffer`, `pMiniBuffer`) indicate Snapcast correcting timing drift — normal on WiFi. The `--latency 100` flag adds 100ms of extra PCM buffer in PulseAudio to absorb WiFi jitter before it causes audible glitches.
+
+If you still hear stutters, increase the Music Assistant Snapcast buffer (currently 2000ms) further, or reduce chunk size to 20ms for finer correction granularity.
 
 ALSA output is not an option because PipeWire is required for Bluetooth A2DP routing. The `--player pulse` flag works because PipeWire provides PulseAudio compatibility.
 
