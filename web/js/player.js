@@ -18,17 +18,15 @@ export function fmtTime(s) {
 
 /** Update the progress bar by interpolating elapsed time. */
 export function updateProgress() {
-  if (state.npDuration <= 0 || !state.npElapsedAt) return;
+  if (state.npDuration <= 0 || state.npElapsed == null) return;
   const clientNow = Date.now() / 1000;
-  const drift = state.npServerTime ? (clientNow - state.npServerTime) : 0;
-  const pos = Math.min(
-    state.npElapsed + (clientNow - state.npElapsedAt - drift),
-    state.npDuration
-  );
+  const elapsed = state.npElapsedAt
+    ? state.npElapsed + (clientNow - state.npElapsedAt)
+    : state.npElapsed;
+  const pos = Math.min(Math.max(0, elapsed), state.npDuration);
   document.getElementById('np-pos').textContent = fmtTime(pos);
   document.getElementById('np-dur').textContent = fmtTime(state.npDuration);
-  const pct = Math.max(0, pos) / state.npDuration * 100;
-  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-fill').style.width = (pos / state.npDuration * 100) + '%';
 }
 
 /** Update the blurred album art background. */
@@ -41,6 +39,15 @@ function updatePlayerBackground(imageUrl) {
 /** Send a Snapcast playback control command. */
 export async function snapControl(action) {
   if (!state.currentStreamId) return;
+  // Optimistic UI update for play/pause
+  if (action === 'play' || action === 'pause') {
+    state.isPlaying = action === 'play';
+    state.playStateLockUntil = Date.now() + 5000;
+    const btn = document.getElementById('btn-playpause');
+    btn.innerHTML = state.isPlaying
+      ? '<span class="material-symbols-outlined">pause</span>'
+      : '<span class="material-symbols-outlined">play_arrow</span>';
+  }
   await snapcastControl(action, state.currentStreamId);
   setTimeout(pollSnapcast, 500);
 }
@@ -60,11 +67,13 @@ export function handleSnapcastStatus(d) {
   const np = d.now_playing;
   if (np) {
     document.getElementById('np-title').textContent = np.title || '—';
-    document.getElementById('np-artist').textContent = np.artist || '';
+    const artist = Array.isArray(np.artist) ? np.artist.join(', ') : (np.artist || '').split(',').map(s => s.trim()).join(', ');
+    document.getElementById('np-artist').textContent = artist;
     document.getElementById('np-album').textContent = np.album || '';
     const art = document.getElementById('np-art');
     if (np.artUrl) {
-      art.src = np.artUrl;
+      const proxiedUrl = '/api/ma/imageproxy?url=' + encodeURIComponent(np.artUrl);
+      art.src = proxiedUrl;
       art.style.display = '';
       if (np.artUrl !== state.lastImageUrl) {
         state.lastImageUrl = np.artUrl;
@@ -92,11 +101,15 @@ export function handleSnapcastStatus(d) {
     const maStream = d.streams.find(s => s.metadata);
     if (maStream) state.currentStreamId = maStream.id;
   }
-  state.isPlaying = d.streams.some(s => s.status === 'playing');
+  // Only update play state from SSE if no user action is pending
+  if (Date.now() >= state.playStateLockUntil) {
+    state.isPlaying = d.streams.some(s => s.status === 'playing');
+    const btn = document.getElementById('btn-playpause');
+    btn.innerHTML = state.isPlaying
+      ? '<span class="material-symbols-outlined">pause</span>'
+      : '<span class="material-symbols-outlined">play_arrow</span>';
+  }
   const btn = document.getElementById('btn-playpause');
-  btn.innerHTML = state.isPlaying
-    ? '<span class="material-symbols-outlined">pause</span>'
-    : '<span class="material-symbols-outlined">play_arrow</span>';
   btn.disabled = !state.currentStreamId;
   document.getElementById('btn-prev').disabled = !c.canGoPrevious && !state.currentStreamId;
   document.getElementById('btn-next').disabled = !c.canGoNext && !state.currentStreamId;
@@ -167,9 +180,8 @@ export async function pollMaQueue() {
     const d = await fetchMaQueue();
     if (d.duration > 0) {
       state.npElapsed = d.elapsed_time || 0;
-      state.npElapsedAt = d.elapsed_time_last_updated || 0;
+      state.npElapsedAt = d.server_time || (Date.now() / 1000);
       state.npDuration = d.duration || 0;
-      state.npServerTime = d.server_time || 0;
       updateProgress();
 
       if (d.queue_id) state.currentQueueId = d.queue_id;
@@ -242,10 +254,17 @@ export async function pollMaQueue() {
         updatePlayerBackground(d.image_url);
       }
 
-      // Show queue card
+      // Show queue card and auto-expand on first load
       document.getElementById('queue-card').style.display = '';
       document.getElementById('queue-count').textContent = '(' + d.queue_total + ')';
-    }
+      if (!state.queueVisible) {
+        state.queueVisible = true;
+        const list = document.getElementById('queue-list');
+        const btn = document.getElementById('btn-queue-toggle');
+        list.style.display = '';
+        btn.textContent = 'Hide';
+        import('./queue.js').then(m => m.loadQueue());
+      }    }
   } catch (e) {
     // Ignore poll errors
   }

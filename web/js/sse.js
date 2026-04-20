@@ -8,12 +8,11 @@ import { pollMaQueue, handleSnapcastStatus, handleAudioStatus, handleBtStatus } 
 import { handleStats } from './charts.js';
 import { loadQueue } from './queue.js';
 
-/** Update progress bar from elapsed time data. */
+/** Update progress bar anchor from a time-update SSE event. */
 function handleTimeUpdate(data) {
   if (data.elapsed_time != null) {
     state.npElapsed = data.elapsed_time;
-    state.npElapsedAt = data.elapsed_time_last_updated || (Date.now() / 1000);
-    state.npServerTime = Date.now() / 1000;
+    state.npElapsedAt = Date.now() / 1000;
   }
 }
 
