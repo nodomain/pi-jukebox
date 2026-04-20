@@ -22,7 +22,8 @@ export async function loadQueue() {
     list.innerHTML = d.items.map((item, i) => {
       const isCurrent = i === curIdx;
       const dur = fmtTime(item.duration);
-      return `<div class="q-item${isCurrent ? ' q-current' : ''}" data-action="play" data-id="${item.queue_item_id}">
+      return `<div class="q-item${isCurrent ? ' q-current' : ''}" data-action="play" data-id="${item.queue_item_id}" data-name="${item.name.replace(/"/g, '&quot;')}">
+        <span class="q-play"><span class="material-symbols-outlined">${isCurrent ? 'equalizer' : 'play_arrow'}</span></span>
         <span class="q-idx">${i + 1}</span>
         <span class="q-name">${item.name}</span>
         <span class="q-dur">${dur}</span>
@@ -60,8 +61,26 @@ async function queueAction(action, extra = {}) {
   if (state.queueVisible) setTimeout(loadQueue, 500);
 }
 
-/** Play a specific queue item by ID. */
-export function queuePlay(id) { queueAction('play_index', { queue_item_id: id }); }
+/** Play a specific queue item by ID, with immediate visual feedback. */
+export function queuePlay(id, name) {
+  // Immediately highlight the clicked item
+  const list = document.getElementById('queue-list');
+  list.querySelectorAll('.q-item').forEach(el => {
+    const isSel = el.dataset.id === id;
+    el.classList.toggle('q-current', isSel);
+    const icon = el.querySelector('.q-play .material-symbols-outlined');
+    if (icon) icon.textContent = isSel ? 'equalizer' : 'play_arrow';
+  });
+  // Update Now Playing title immediately
+  if (name) {
+    document.getElementById('np-title').textContent = name;
+    document.getElementById('np-pos').textContent = '0:00';
+    document.getElementById('progress-fill').style.width = '0%';
+  }
+  // Lock play state so SSE doesn't revert the queue highlight before the track starts
+  state.playStateLockUntil = Date.now() + 5000;
+  queueAction('play_index', { queue_item_id: id });
+}
 
 /** Delete a queue item by ID. */
 export function queueDelete(id) { queueAction('delete', { queue_item_id: id }); }
@@ -110,7 +129,10 @@ export function initQueueEvents() {
     const action = btn.dataset.action;
     const id = btn.dataset.id;
     e.stopPropagation();
-    if (action === 'play') queuePlay(id);
+    if (action === 'play') {
+      const row = btn.closest('.q-item');
+      queuePlay(id, row?.dataset.name);
+    }
     else if (action === 'move-up') queueMove(id, -1);
     else if (action === 'move-down') queueMove(id, 1);
     else if (action === 'delete') queueDelete(id);

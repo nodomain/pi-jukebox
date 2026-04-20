@@ -16,5 +16,7 @@ export const state = {
   npDuration: 0,
   npElapsed: 0,
   npElapsedAt: 0,
-  npServerTime: 0,
+  // Timestamp (ms) until which play-state SSE updates should be ignored,
+  // set after a user-initiated playback control action.
+  playStateLockUntil: 0,
 };
