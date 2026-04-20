@@ -164,13 +164,18 @@ cat > /usr/local/bin/bt-watchdog << WATCHDOG
 MAC="${BT_MAC}"
 CARD="${CARD_NAME}"
 PW_ENV="XDG_RUNTIME_DIR=/run/user/${UID_NUM}"
+WAS_CONNECTED=false
 sleep 10
+# Initialize state: stop snapclient if BT is not connected at startup
+if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
+    WAS_CONNECTED=true
+else
+    systemctl stop snapclient 2>/dev/null || true
+fi
 while true; do
-    if ! bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
-        bluetoothctl connect "\$MAC" 2>/dev/null
-        sleep 5
-        if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
-            # Switch to SBC-XQ codec
+    if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
+        if [ "\$WAS_CONNECTED" = false ]; then
+            # Just reconnected — switch to SBC-XQ and start snapclient
             sleep 2
             DEV_ID=\$(su - ${JUKEBOX_USER} -c "\$PW_ENV pw-cli list-objects 2>/dev/null" | grep -B20 "\$CARD" | grep "^.id " | tail -1 | awk '{print \$2}' | tr -d ',')
             if [ -n "\$DEV_ID" ]; then
@@ -183,8 +188,16 @@ while true; do
                 done
             fi
             sleep 2
-            systemctl restart snapclient
+            systemctl start snapclient
+            WAS_CONNECTED=true
         fi
+    else
+        # Not connected — stop snapclient so MA pauses, then try reconnect
+        if [ "\$WAS_CONNECTED" = true ]; then
+            systemctl stop snapclient
+            WAS_CONNECTED=false
+        fi
+        bluetoothctl connect "\$MAC" 2>/dev/null || true
     fi
     sleep 15
 done
