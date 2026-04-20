@@ -218,11 +218,25 @@ MAC="${BT_MAC}"
 CARD="${CARD_NAME}"
 PW_ENV="XDG_RUNTIME_DIR=/run/user/${UID_NUM}"
 WAS_CONNECTED=false
+
+switch_codec() {
+    DEV_ID=\$(su - ${JUKEBOX_USER} -c "\$PW_ENV pw-cli list-objects 2>/dev/null" | grep -B20 "\$CARD" | grep "^.id " | tail -1 | awk '{print \$2}' | tr -d ',')
+    if [ -n "\$DEV_ID" ]; then
+        su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl set-profile \$DEV_ID 131074" 2>/dev/null
+        for i in \$(seq 1 10); do
+            sleep 1
+            if su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl status 2>/dev/null" | grep -q "vol:"; then
+                break
+            fi
+        done
+    fi
+}
+
 sleep 10
 # Initialize state: sync snapclient with BT connection
 if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
     WAS_CONNECTED=true
-    # Ensure snapclient is running if BT is already connected
+    switch_codec
     systemctl is-active --quiet snapclient || systemctl start snapclient
 else
     systemctl stop snapclient 2>/dev/null || true
@@ -231,16 +245,7 @@ while true; do
     if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
         if [ "\$WAS_CONNECTED" = false ]; then
             sleep 2
-            DEV_ID=\$(su - ${JUKEBOX_USER} -c "\$PW_ENV pw-cli list-objects 2>/dev/null" | grep -B20 "\$CARD" | grep "^.id " | tail -1 | awk '{print \$2}' | tr -d ',')
-            if [ -n "\$DEV_ID" ]; then
-                su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl set-profile \$DEV_ID 131074" 2>/dev/null
-                for i in \$(seq 1 10); do
-                    sleep 1
-                    if su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl status 2>/dev/null" | grep -q "vol:"; then
-                        break
-                    fi
-                done
-            fi
+            switch_codec
             sleep 2
             systemctl start snapclient
             WAS_CONNECTED=true
@@ -273,10 +278,15 @@ WantedBy=multi-user.target" || true
 
 # --- Web dashboard ---
 echo "==> Web dashboard"
-mkdir -p /opt/jukebox/templates
-cp "${SCRIPT_DIR}/../web/app.py" /opt/jukebox/app.py
-cp "${SCRIPT_DIR}/../web/cava.conf" /opt/jukebox/cava.conf
-cp "${SCRIPT_DIR}/../web/templates/index.html" /opt/jukebox/templates/index.html
+WEB_SRC="${SCRIPT_DIR}/../web"
+mkdir -p /opt/jukebox/templates /opt/jukebox/static /opt/jukebox/routes
+cp "${WEB_SRC}/app.py" /opt/jukebox/app.py
+cp "${WEB_SRC}/helpers.py" /opt/jukebox/helpers.py
+cp "${WEB_SRC}/cava.conf" /opt/jukebox/cava.conf
+cp "${WEB_SRC}"/routes/*.py /opt/jukebox/routes/
+cp "${WEB_SRC}"/static/style.css /opt/jukebox/static/
+cp "${WEB_SRC}"/static/app.js /opt/jukebox/static/
+cp "${WEB_SRC}/templates/index.html" /opt/jukebox/templates/index.html
 
 ensure_file /etc/systemd/system/jukebox-web.service \
 "[Unit]
