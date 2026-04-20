@@ -3,7 +3,7 @@
  * @module sse
  */
 
-import { state } from './main.js';
+import { state } from './state.js';
 import { pollMaQueue, handleSnapcastStatus, handleAudioStatus, handleBtStatus } from './player.js';
 import { handleStats } from './charts.js';
 import { loadQueue } from './queue.js';
