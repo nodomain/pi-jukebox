@@ -5,10 +5,10 @@
 ├── .env.example          # Template for environment variables
 ├── .env                  # Local config (gitignored): user, host, BT MAC, server IP, MA token
 ├── .gitignore
+├── Makefile              # Dev machine targets (deploy, setup, logs, status, ...)
 ├── README.md             # Full project documentation, setup guide, troubleshooting
 ├── scripts/
-│   ├── deploy.sh         # Deploy web dashboard to the Pi via SCP + SSH (run from dev machine)
-│   ├── setup.sh          # Pi provisioning script (installs packages, creates systemd services, deploys app)
+│   ├── setup.sh          # Pi provisioning script — idempotent (run on Pi as root)
 │   └── pair-bt.sh        # Bluetooth speaker pairing script
 └── web/                  # Flask web dashboard (deployed to /opt/jukebox/ on the Pi)
     ├── app.py            # Flask application — all API routes, SSE endpoints, MA WebSocket relay
