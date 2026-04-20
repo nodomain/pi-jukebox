@@ -94,23 +94,38 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   .grid-2 { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* Now Playing */
-.now-playing { display: flex; gap: 12px; align-items: center; }
-.now-playing img { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
-@media (min-width: 500px) { .now-playing img { width: 128px; height: 128px; } }
-@media (min-width: 900px) { .now-playing img { width: 220px; height: 220px; } }
-.now-playing .np-info { flex: 1; min-width: 0; }
-.now-playing .np-title { font-weight: 700; font-size: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-playing .np-artist { color: var(--dim); font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-playing .np-album { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Now Playing — player layout */
+.player-layout { display: flex; gap: 12px; align-items: center; }
+.np-art { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+@media (min-width: 500px) { .np-art { width: 128px; height: 128px; } }
 @media (min-width: 900px) {
-  .now-playing .np-title { font-size: 1.8em; }
-  .now-playing .np-artist { font-size: 1.3em; }
-  .now-playing .np-album { font-size: 1.1em; }
+  .player-layout { align-items: flex-start; gap: 24px; }
+  .np-art { width: 240px; height: 240px; border-radius: 12px; }
+}
+.np-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.np-info { min-width: 0; }
+.np-title { font-weight: 700; font-size: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-artist { color: var(--dim); font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-album { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 900px) {
+  .np-right { padding-top: 4px; gap: 10px; }
+  .np-title { font-size: 2em; margin-bottom: 2px; }
+  .np-artist { font-size: 1.3em; }
+  .np-album { font-size: 1em; }
 }
 
-/* Playback controls */
-.playback-controls { display: flex; justify-content: center; gap: 16px; margin-top: 10px; }
+/* Progress bar */
+.np-progress { display: flex; align-items: center; gap: 8px; font-size: 0.75em; color: var(--dim); }
+.np-progress #progress-bar { flex: 1; height: 20px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+
+/* FFT canvas */
+.np-fft { width: 100%; height: 40px; border-radius: 6px; display: block; }
+
+/* Track meta row */
+.np-meta { display: flex; align-items: center; gap: 8px; font-size: 0.7em; color: var(--dim); flex-wrap: wrap; }
+
+.playback-controls { display: flex; justify-content: center; gap: 16px; }
+@media (min-width: 900px) { .playback-controls { justify-content: flex-start; } }
 .playback-controls button {
   background: none; border: none; color: var(--text); font-size: 1em;
   padding: 4px 14px; cursor: pointer; border-radius: 50%;
@@ -181,6 +196,28 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .light .playback-controls button:disabled { color: #ccc; }
 .light .playback-controls button:active { background: var(--border); }
 
-/* Theme toggle */
-.theme-toggle { position: absolute; top: 12px; right: 12px; background: none; border: none; font-size: 1.2em; cursor: pointer; color: var(--dim); padding: 4px 8px; border-radius: 6px; }
+/* Site header */
+.site-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+.site-header h1 { margin: 0; }
+
+/* Theme toggle — floated to top-right with breathing room */
+.theme-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 1.2em;
+  cursor: pointer;
+  color: var(--dim);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
 .theme-toggle:hover { background: var(--border); }
