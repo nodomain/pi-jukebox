@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root { --bg: #0f1117; --card: #1a1d27; --border: #2a2d37; --text: #e0e0e0; --dim: #888; --accent: #4a9eff; --green: #4caf50; --red: #f44336; --orange: #ff9800; }
+:root.light { --bg: #f0f2f5; --card: #ffffff; --border: #dde0e4; --text: #1a1a1a; --dim: #666; --accent: #2979ff; --green: #388e3c; --red: #d32f2f; --orange: #f57c00; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 12px; max-width: 1200px; margin: 0 auto; -webkit-tap-highlight-color: transparent; }
 h1 { font-size: 1.2em; margin-bottom: 12px; text-align: center; }
@@ -80,11 +81,30 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .q-item .q-actions button:hover { color: var(--text); }
 .ctrl-btn { padding: 2px 4px; border-radius: 4px; }
 .ctrl-btn:hover { background: rgba(255,255,255,0.1); }
+
+/* Light theme overrides */
+.light .card.player-card .bg-blur { filter: blur(30px) brightness(0.7); }
+.light .flag-ok { background: #e8f5e9; color: #2e7d32; }
+.light .flag-warn { background: #ffebee; color: #c62828; }
+.light .badge-green { background: #e8f5e9; color: #2e7d32; }
+.light .badge-red { background: #ffebee; color: #c62828; }
+.light .badge-orange { background: #fff3e0; color: #e65100; }
+.light .badge-cyan { background: #e0f7fa; color: #00838f; }
+.light .playback-controls button { color: var(--text); }
+.light .playback-controls button:disabled { color: #ccc; }
+.light .playback-controls button:active { background: var(--border); }
+
+/* Theme toggle */
+.theme-toggle { position: absolute; top: 12px; right: 12px; background: none; border: none; font-size: 1.2em; cursor: pointer; color: var(--dim); padding: 4px 8px; border-radius: 6px; }
+.theme-toggle:hover { background: var(--border); }
 </style>
 </head>
 <body>
 
-<h1>🎵 Jukebox Pi</h1>
+<div style="position:relative">
+  <h1>🎵 Jukebox Pi</h1>
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+</div>
 
 <!-- Now Playing + Controls -->
 <div class="card player-card" id="player-card">
@@ -107,8 +127,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   </div>
   <div style="margin-top:8px; display:flex; align-items:center; gap:8px; font-size:0.75em; color:var(--dim)">
     <span id="np-pos">0:00</span>
-    <div style="flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; cursor:pointer" id="progress-bar">
-      <div id="progress-fill" style="height:100%; background:#4a9eff; width:0%; border-radius:2px"></div>
+    <div style="flex:1; height:20px; display:flex; align-items:center; cursor:pointer; touch-action:none" id="progress-bar">
+      <div style="width:100%; height:4px; background:var(--border); border-radius:2px; overflow:hidden; position:relative">
+        <div id="progress-fill" style="height:100%; background:var(--accent); width:0%; border-radius:2px"></div>
+      </div>
     </div>
     <span id="np-dur">0:00</span>
   </div>
@@ -127,7 +149,12 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
     <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
   </div>
   <div class="vol-row" style="margin-top:10px">
-    <span>🔊</span>
+    <span title="Music Assistant">🎵</span>
+    <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
+    <span id="ma-vol-val">—</span>
+  </div>
+  <div class="vol-row" style="margin-top:6px">
+    <span title="Speaker">🔊</span>
     <input type="range" id="vol-slider" min="0" max="100" value="30">
     <span id="vol-val">—</span>
   </div>
@@ -243,6 +270,7 @@ let queueVisible = false;
 let lastImageUrl = '';
 let currentShuffle = false;
 let currentRepeat = 'off';
+let maPlayerId = '';
 
 function makeChart(id, datasets, yOpts = {}) {
   return new Chart(document.getElementById(id), {
@@ -374,6 +402,21 @@ async function pollAudio() {
     if (def && def.volume !== null) {
       document.getElementById('vol-slider').value = Math.round(def.volume * 100);
       document.getElementById('vol-val').textContent = Math.round(def.volume * 100) + '%';
+    }
+  } catch (e) {}
+}
+
+async function pollMaVolume() {
+  try {
+    const r = await fetch('/api/ma/volume');
+    const d = await r.json();
+    if (d.player_id) {
+      maPlayerId = d.player_id;
+      const slider = document.getElementById('ma-vol-slider');
+      if (!slider.matches(':active')) {
+        slider.value = d.volume || 0;
+        document.getElementById('ma-vol-val').textContent = (d.volume || 0) + '%';
+      }
     }
   } catch (e) {}
 }
@@ -604,6 +647,16 @@ document.getElementById('vol-slider').addEventListener('input', async function (
   });
 });
 
+document.getElementById('ma-vol-slider').addEventListener('input', async function () {
+  const vol = parseInt(this.value);
+  document.getElementById('ma-vol-val').textContent = vol + '%';
+  if (!maPlayerId) return;
+  await fetch('/api/ma/volume', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ player_id: maPlayerId, volume: vol })
+  });
+});
+
 async function svcAction(action) {
   await fetch(`/api/service/${action}`, { method: 'POST' });
   if (action === 'reboot') document.body.innerHTML = '<h1 style="text-align:center;margin-top:40vh">Rebooting...</h1>';
@@ -771,13 +824,81 @@ connectSSE();
   }
 })();
 
-pollStats(); pollBt(); pollAudio(); pollSnapcast(); pollJitter(); pollMaQueue();
+pollStats(); pollBt(); pollAudio(); pollMaVolume(); pollSnapcast(); pollJitter(); pollMaQueue();
 setInterval(pollStats, POLL_MS);
 setInterval(pollBt, 10000);
 setInterval(pollAudio, 10000);
+setInterval(pollMaVolume, 10000);
 setInterval(pollSnapcast, 5000);
 setInterval(pollJitter, 10000);
-setInterval(pollMaQueue, 10000); // Reduced from 3s — SSE handles real-time updates
+setInterval(pollMaQueue, 10000);
+
+// --- Seek ---
+(function() {
+  const bar = document.getElementById('progress-bar');
+  function seekTo(e) {
+    if (npDuration <= 0 || !currentStreamId) return;
+    const rect = bar.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
+    const pos = pct * npDuration;
+    document.getElementById('progress-fill').style.width = (pct * 100) + '%';
+    document.getElementById('np-pos').textContent = fmtTime(pos);
+    fetch('/api/snapcast/control', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'seek', streamId: currentStreamId, position: pos })
+    }).then(() => setTimeout(pollMaQueue, 500));
+  }
+  bar.addEventListener('click', seekTo);
+  // Drag seek
+  let dragging = false;
+  bar.addEventListener('touchstart', function(e) { dragging = true; seekTo(e); }, { passive: true });
+  bar.addEventListener('touchmove', function(e) { if (dragging) seekTo(e); }, { passive: true });
+  bar.addEventListener('touchend', function() { dragging = false; });
+})();
+
+// --- Theme Toggle ---
+(function() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'light') {
+    document.documentElement.classList.add('light');
+    document.getElementById('theme-toggle').textContent = '☀️';
+  }
+})();
+function toggleTheme() {
+  const root = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+  root.classList.toggle('light');
+  const isLight = root.classList.contains('light');
+  btn.textContent = isLight ? '☀️' : '🌙';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+
+// --- Swipe Gestures ---
+(function() {
+  const card = document.getElementById('player-card');
+  let startX = 0, startY = 0, startTime = 0;
+  const MIN_SWIPE = 60;
+  const MAX_TIME = 400;
+
+  card.addEventListener('touchstart', function(e) {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = Date.now();
+  }, { passive: true });
+
+  card.addEventListener('touchend', function(e) {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    const dt = Date.now() - startTime;
+    if (dt > MAX_TIME) return;
+    if (Math.abs(dx) < MIN_SWIPE && Math.abs(dy) < MIN_SWIPE) return;
+    // Ignore if mostly vertical (scrolling)
+    if (Math.abs(dy) > Math.abs(dx)) return;
+    if (dx > MIN_SWIPE) snapControl('previous');
+    else if (dx < -MIN_SWIPE) snapControl('next');
+  }, { passive: true });
+})();
 </script>
 </body>
 </html>
