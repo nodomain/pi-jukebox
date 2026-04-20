@@ -62,16 +62,18 @@
   <div id="np-next" style="margin-top:4px; font-size:0.75em; color:var(--dim); display:none">
     <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
   </div>
-  <!-- Volume sliders -->
-  <div class="vol-row" style="margin-top:10px">
-    <span class="vol-label"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">music_note</span> MA</span>
-    <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
-    <span id="ma-vol-val">—</span>
-  </div>
-  <div class="vol-row" style="margin-top:6px">
-    <span class="vol-label"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">volume_up</span> Speaker</span>
-    <input type="range" id="vol-slider" min="0" max="100" value="30">
-    <span id="vol-val">—</span>
+  <!-- Volume controls -->
+  <div class="vol-grid">
+    <div class="vol-item">
+      <div class="vol-icon"><span class="material-symbols-outlined">music_note</span></div>
+      <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
+      <span class="vol-val" id="ma-vol-val">—</span>
+    </div>
+    <div class="vol-item">
+      <div class="vol-icon"><span class="material-symbols-outlined">volume_up</span></div>
+      <input type="range" id="vol-slider" min="0" max="100" value="30">
+      <span class="vol-val" id="vol-val">—</span>
+    </div>
   </div>
 </div>
 
