@@ -1,0 +1,12 @@
+{
+  "name": "jukebox-pi-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Jukebox Pi web dashboard frontend build",
+  "scripts": {
+    "build": "esbuild js/main.js --bundle --outfile=static/app.js --format=iife --minify"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

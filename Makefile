@@ -8,23 +8,25 @@ HOST := $(JUKEBOX_USER)@$(JUKEBOX_HOST)
 REMOTE_DIR := /opt/jukebox
 TMP_DIR := /tmp/jukebox-deploy
 
-.PHONY: help deploy setup pair logs status restart reboot ssh
+.PHONY: help build deploy setup pair logs status restart reboot ssh
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-deploy: ## Deploy web dashboard to the Pi
-	@echo "==> Uploading web/ to $(HOST):$(TMP_DIR)"
-	@ssh $(HOST) "rm -rf $(TMP_DIR) && mkdir -p $(TMP_DIR)/templates"
-	@scp -q web/app.py              $(HOST):$(TMP_DIR)/app.py
-	@scp -q web/cava.conf           $(HOST):$(TMP_DIR)/cava.conf
-	@scp -q web/templates/index.html $(HOST):$(TMP_DIR)/templates/index.html
+build: ## Bundle JS modules with esbuild
+	@npm run build --prefix web
+
+deploy: build ## Build + deploy web dashboard to the Pi
+	@echo "==> Uploading to $(HOST):$(TMP_DIR)"
+	@ssh $(HOST) "rm -rf $(TMP_DIR) && mkdir -p $(TMP_DIR)/templates $(TMP_DIR)/static $(TMP_DIR)/routes"
+	@scp -q web/app.py web/helpers.py web/cava.conf $(HOST):$(TMP_DIR)/
+	@scp -q web/routes/*.py                         $(HOST):$(TMP_DIR)/routes/
+	@scp -q web/static/style.css web/static/app.js  $(HOST):$(TMP_DIR)/static/
+	@scp -q web/templates/index.html                $(HOST):$(TMP_DIR)/templates/
 	@echo "==> Deploying to $(REMOTE_DIR)"
 	@ssh $(HOST) "\
-		sudo rm -rf $(REMOTE_DIR)/__pycache__ && \
-		sudo cp $(TMP_DIR)/app.py              $(REMOTE_DIR)/app.py && \
-		sudo cp $(TMP_DIR)/cava.conf           $(REMOTE_DIR)/cava.conf && \
-		sudo cp $(TMP_DIR)/templates/index.html $(REMOTE_DIR)/templates/index.html && \
+		sudo rm -rf $(REMOTE_DIR)/__pycache__ $(REMOTE_DIR)/routes/__pycache__ && \
+		sudo cp -r $(TMP_DIR)/* $(REMOTE_DIR)/ && \
 		sudo systemctl restart jukebox-web && \
 		rm -rf $(TMP_DIR)"
 	@ssh $(HOST) "sudo systemctl is-active jukebox-web"
