@@ -269,9 +269,21 @@ def stats():
 # --- Bluetooth API ---
 
 
+def _find_bt_transport():
+    """Find the active BlueZ MediaTransport1 D-Bus path."""
+    raw = run(
+        "busctl tree org.bluez 2>/dev/null | grep '/fd'"
+    )
+    for line in raw.splitlines():
+        path = line.strip().lstrip("├─└─│ ")
+        if "/fd" in path:
+            return path
+    return ""
+
+
 @app.route("/api/bt/status")
 def bt_status():
-    """Return Bluetooth connection status and codec."""
+    """Return Bluetooth connection status, codec, and AVRCP volume."""
     info = run("bluetoothctl info 2>/dev/null")
     connected = "Connected: yes" in info
     name = ""
@@ -293,9 +305,41 @@ def bt_status():
     except (json.JSONDecodeError, TypeError):
         pass
 
-    return jsonify(
-        {"connected": connected, "name": name, "mac": mac, "codec": codec}
+    # AVRCP hardware volume (0-127)
+    hw_volume = -1
+    transport = _find_bt_transport()
+    if transport and connected:
+        vol_raw = run(
+            f"busctl get-property org.bluez {transport} "
+            f"org.bluez.MediaTransport1 Volume 2>/dev/null"
+        )
+        if vol_raw.startswith("q "):
+            try:
+                hw_volume = int(vol_raw.split()[1])
+            except (ValueError, IndexError):
+                pass
+
+    return jsonify({
+        "connected": connected, "name": name, "mac": mac,
+        "codec": codec, "hw_volume": hw_volume,
+    })
+
+
+@app.route("/api/bt/volume", methods=["POST"])
+def bt_volume():
+    """Set AVRCP hardware volume on the Bluetooth speaker (0-127)."""
+    vol = request.json.get("volume")
+    if vol is None:
+        return jsonify({"error": "Missing volume"}), 400
+    vol = max(0, min(127, int(vol)))
+    transport = _find_bt_transport()
+    if not transport:
+        return jsonify({"error": "No active BT transport"}), 404
+    run(
+        f"busctl set-property org.bluez {transport} "
+        f"org.bluez.MediaTransport1 Volume q {vol}"
     )
+    return jsonify({"volume": vol})
 
 
 @app.route("/api/bt/scan", methods=["POST"])
@@ -472,14 +516,17 @@ def snapcast_control():
         "pause": "pause",
         "next": "next",
         "previous": "previous",
+        "seek": "seek",
     }
     cmd = command_map.get(action)
     if not cmd:
         return jsonify({"error": "Unknown action"}), 400
 
-    result = snapcast_rpc(
-        "Stream.Control", {"id": stream_id, "command": cmd}
-    )
+    params = {"id": stream_id, "command": cmd}
+    if cmd == "seek" and "position" in (request.json or {}):
+        params["position"] = float(request.json["position"])
+
+    result = snapcast_rpc("Stream.Control", params)
     return jsonify({"result": result or "ok"})
 
 
@@ -610,6 +657,42 @@ def _fetch_lyrics(track_id, track_uri):
         return ly_meta.get("lrc_lyrics") or ly_meta.get("lyrics") or ""
     except (json.JSONDecodeError, TypeError):
         return ""
+
+
+@app.route("/api/ma/volume")
+def ma_volume():
+    """Get MA player volume for the Jukebox queue."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    data = ma_rpc("players/all")
+    if not data:
+        return jsonify({"error": "MA unreachable"}), 500
+    # Find the player that matches our active queue
+    for p in (data if isinstance(data, list) else []):
+        if "jukebox" in p.get("display_name", "").lower():
+            return jsonify({
+                "volume": p.get("volume_level", 0),
+                "muted": p.get("volume_muted", False),
+                "player_id": p.get("player_id", ""),
+                "name": p.get("display_name", ""),
+            })
+    return jsonify({"error": "Player not found"}), 404
+
+
+@app.route("/api/ma/volume", methods=["POST"])
+def ma_volume_set():
+    """Set MA player volume."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    player_id = request.json.get("player_id", "")
+    volume = request.json.get("volume")
+    if not player_id or volume is None:
+        return jsonify({"error": "Missing player_id or volume"}), 400
+    volume = max(0, min(100, int(volume)))
+    ma_rpc("players/cmd/volume_set", {
+        "player_id": player_id, "volume_level": volume,
+    })
+    return jsonify({"volume": volume})
 
 
 @app.route("/api/ma/queue")
