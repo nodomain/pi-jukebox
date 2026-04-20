@@ -65,4 +65,13 @@ export function initSystemEvents() {
     const btn = e.target.closest('[data-bt-mac]');
     if (btn) btConnect(btn.dataset.btMac);
   });
+
+  // Persist details open/closed state
+  const details = document.getElementById('tech-details');
+  if (localStorage.getItem('details-open') === 'true') {
+    details.open = true;
+  }
+  details.addEventListener('toggle', function () {
+    localStorage.setItem('details-open', details.open);
+  });
 }
