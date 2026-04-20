@@ -75,6 +75,7 @@ button.secondary { background: var(--border); color: var(--text); }
 input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .vol-row { display: flex; align-items: center; gap: 10px; }
 .vol-row span { min-width: 36px; text-align: right; font-size: 0.9em; }
+.vol-label { font-size: 0.7em; color: var(--dim); min-width: 52px !important; text-align: left !important; text-transform: uppercase; letter-spacing: 0.5px; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
 .grid-4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
@@ -100,10 +101,12 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 /* Playback controls */
 .playback-controls { display: flex; justify-content: center; gap: 16px; margin-top: 10px; }
 .playback-controls button {
-  background: none; border: none; color: var(--text); font-size: 2.4em;
+  background: none; border: none; color: var(--text); font-size: 1em;
   padding: 4px 14px; cursor: pointer; border-radius: 50%;
   min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;
 }
+.playback-controls button .material-symbols-outlined { font-size: 36px; }
+.playback-controls button:nth-child(3) .material-symbols-outlined { font-size: 48px; }
 .playback-controls button:active { background: var(--border); }
 .playback-controls button:disabled { color: #333; }
 

@@ -76,13 +76,28 @@ export function clearQueue() {
 
 /** Toggle shuffle mode. */
 export function toggleShuffle() {
-  queueAction('shuffle', { enabled: !state.currentShuffle });
+  state.currentShuffle = !state.currentShuffle;
+  const el = document.getElementById('np-shuffle');
+  el.style.opacity = state.currentShuffle ? '1' : '0.3';
+  queueAction('shuffle', { enabled: state.currentShuffle });
 }
 
 /** Cycle repeat mode: off → all → one → off. */
 export function toggleRepeat() {
   const modes = ['off', 'all', 'one'];
   const next = modes[(modes.indexOf(state.currentRepeat) + 1) % modes.length];
+  state.currentRepeat = next;
+  const el = document.getElementById('np-repeat');
+  if (next === 'one') {
+    el.innerHTML = '<span class="material-symbols-outlined">repeat_one</span>';
+    el.style.opacity = '1';
+  } else if (next === 'all') {
+    el.innerHTML = '<span class="material-symbols-outlined">repeat</span>';
+    el.style.opacity = '1';
+  } else {
+    el.innerHTML = '<span class="material-symbols-outlined">repeat</span>';
+    el.style.opacity = '0.3';
+  }
   queueAction('repeat', { mode: next });
 }
 

@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1117">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
 <title>Jukebox Pi</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=bluetooth,dark_mode,light_mode,music_note,pause,play_arrow,power_settings_new,queue_music,repeat,repeat_one,restart_alt,shuffle,skip_next,skip_previous,volume_up,wifi">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -13,7 +18,7 @@
 
 <div style="position:relative">
   <h1>🎵 Jukebox Pi</h1>
-  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+  <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme"><span class="material-symbols-outlined">dark_mode</span></button>
 </div>
 
 <!-- Now Playing + Controls -->
@@ -29,11 +34,11 @@
     </div>
   </div>
   <div class="playback-controls" id="playback-controls">
-    <button id="np-shuffle" onclick="toggleShuffle()" style="display:none; font-size:1.4em" title="Shuffle">🔀</button>
-    <button id="btn-prev" onclick="snapControl('previous')" disabled>⏮</button>
-    <button id="btn-playpause" onclick="togglePlayPause()" disabled>▶</button>
-    <button id="btn-next" onclick="snapControl('next')" disabled>⏭</button>
-    <button id="np-repeat" onclick="toggleRepeat()" style="display:none; font-size:1.4em" title="Repeat">🔁</button>
+    <button id="np-shuffle" onclick="toggleShuffle()" style="display:none" title="Shuffle"><span class="material-symbols-outlined">shuffle</span></button>
+    <button id="btn-prev" onclick="snapControl('previous')" disabled><span class="material-symbols-outlined">skip_previous</span></button>
+    <button id="btn-playpause" onclick="togglePlayPause()" disabled><span class="material-symbols-outlined">play_arrow</span></button>
+    <button id="btn-next" onclick="snapControl('next')" disabled><span class="material-symbols-outlined">skip_next</span></button>
+    <button id="np-repeat" onclick="toggleRepeat()" style="display:none" title="Repeat"><span class="material-symbols-outlined">repeat</span></button>
   </div>
   <div style="margin-top:8px; display:flex; align-items:center; gap:8px; font-size:0.75em; color:var(--dim)">
     <span id="np-pos">0:00</span>
@@ -45,26 +50,26 @@
     <span id="np-dur">0:00</span>
   </div>
   <!-- FFT Visualizer -->
-  <canvas id="fft-canvas" style="width:100%; height:48px; margin-top:6px; border-radius:6px; display:block"></canvas>
-  <!-- Track info row -->
-  <div id="np-meta-row" style="margin-top:6px; display:flex; align-items:center; gap:10px; font-size:0.7em; color:var(--dim); flex-wrap:wrap">
+  <canvas id="fft-canvas" style="width:100%; height:32px; margin-top:6px; border-radius:6px; display:block; opacity:0.7"></canvas>
+  <!-- Track info -->
+  <div id="np-meta-row" style="margin-top:6px; display:flex; align-items:center; gap:8px; font-size:0.7em; color:var(--dim); flex-wrap:wrap">
     <span id="np-quality" class="badge" style="display:none"></span>
     <span id="np-codec" style="opacity:0.6"></span>
     <span id="np-queue-pos"></span>
     <span id="np-loudness" style="opacity:0.6"></span>
-    <span id="np-popularity" style="opacity:0.6"></span>
   </div>
   <!-- Up Next -->
-  <div id="np-next" style="margin-top:6px; font-size:0.75em; color:var(--dim); display:none">
+  <div id="np-next" style="margin-top:4px; font-size:0.75em; color:var(--dim); display:none">
     <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
   </div>
+  <!-- Volume sliders -->
   <div class="vol-row" style="margin-top:10px">
-    <span title="Music Assistant">🎵</span>
+    <span class="vol-label"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">music_note</span> MA</span>
     <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
     <span id="ma-vol-val">—</span>
   </div>
   <div class="vol-row" style="margin-top:6px">
-    <span title="Speaker">🔊</span>
+    <span class="vol-label"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">volume_up</span> Speaker</span>
     <input type="range" id="vol-slider" min="0" max="100" value="30">
     <span id="vol-val">—</span>
   </div>
@@ -88,7 +93,7 @@
   <div id="queue-list" style="max-height:400px; overflow-y:auto; display:none"></div>
 </div>
 
-<!-- System & Diagnostics (collapsible) -->
+<!-- System & Diagnostics (collapsible, closed by default) -->
 <details id="tech-details" style="margin-bottom:10px">
 <summary style="cursor:pointer; padding:10px; background:var(--card); border-radius:8px; color:var(--dim); font-size:0.85em; font-weight:600; text-transform:uppercase; letter-spacing:1px">System &amp; Diagnostics</summary>
 
@@ -113,7 +118,7 @@
   </div>
 </div>
 
-<!-- Throttle -->
+<!-- System Health -->
 <div class="card">
   <h2>System Health</h2>
   <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">

@@ -7,9 +7,10 @@
 /** Initialize theme from localStorage on page load. */
 export function initTheme() {
   const saved = localStorage.getItem('theme');
+  const btn = document.getElementById('theme-toggle');
   if (saved === 'light') {
     document.documentElement.classList.add('light');
-    document.getElementById('theme-toggle').textContent = '☀️';
+    btn.innerHTML = '<span class="material-symbols-outlined">light_mode</span>';
   }
 }
 
@@ -19,6 +20,8 @@ export function toggleTheme() {
   const btn = document.getElementById('theme-toggle');
   root.classList.toggle('light');
   const isLight = root.classList.contains('light');
-  btn.textContent = isLight ? '☀️' : '🌙';
+  btn.innerHTML = isLight
+    ? '<span class="material-symbols-outlined">light_mode</span>'
+    : '<span class="material-symbols-outlined">dark_mode</span>';
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
 }

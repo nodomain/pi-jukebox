@@ -94,7 +94,9 @@ export function handleSnapcastStatus(d) {
   }
   state.isPlaying = d.streams.some(s => s.status === 'playing');
   const btn = document.getElementById('btn-playpause');
-  btn.textContent = state.isPlaying ? '⏸' : '▶';
+  btn.innerHTML = state.isPlaying
+    ? '<span class="material-symbols-outlined">pause</span>'
+    : '<span class="material-symbols-outlined">play_arrow</span>';
   btn.disabled = !state.currentStreamId;
   document.getElementById('btn-prev').disabled = !c.canGoPrevious && !state.currentStreamId;
   document.getElementById('btn-next').disabled = !c.canGoNext && !state.currentStreamId;
@@ -138,7 +140,8 @@ export function handleBtStatus(d) {
   document.getElementById('bt-status').innerHTML = d.connected
     ? `<span class="badge badge-green">${d.name || 'Connected'}</span>`
     : '<span class="badge badge-red">Off</span>';
-  document.getElementById('bt-codec').textContent = d.codec ? d.codec.toUpperCase() : '';
+  document.getElementById('bt-codec').textContent = d.codec
+    ? d.codec.replace(/_/g, '-').toUpperCase() : '';
 }
 
 /** Poll MA player volume. */
@@ -202,9 +205,9 @@ export async function pollMaQueue() {
       const rpEl = document.getElementById('np-repeat');
       rpEl.style.display = '';
       state.currentRepeat = d.repeat || 'off';
-      if (state.currentRepeat === 'one') { rpEl.textContent = '🔂'; rpEl.style.opacity = '1'; }
-      else if (state.currentRepeat === 'all') { rpEl.textContent = '🔁'; rpEl.style.opacity = '1'; }
-      else { rpEl.textContent = '🔁'; rpEl.style.opacity = '0.3'; }
+      if (state.currentRepeat === 'one') { rpEl.innerHTML = '<span class="material-symbols-outlined">repeat_one</span>'; rpEl.style.opacity = '1'; }
+      else if (state.currentRepeat === 'all') { rpEl.innerHTML = '<span class="material-symbols-outlined">repeat</span>'; rpEl.style.opacity = '1'; }
+      else { rpEl.innerHTML = '<span class="material-symbols-outlined">repeat</span>'; rpEl.style.opacity = '0.3'; }
 
       // Loudness target
       const lEl = document.getElementById('np-loudness');
