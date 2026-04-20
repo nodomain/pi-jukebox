@@ -98,11 +98,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .now-playing { display: flex; gap: 12px; align-items: center; }
 .now-playing img { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
 @media (min-width: 500px) { .now-playing img { width: 128px; height: 128px; } }
-@media (min-width: 900px) { .now-playing img { width: 160px; height: 160px; } }
+@media (min-width: 900px) { .now-playing img { width: 220px; height: 220px; } }
 .now-playing .np-info { flex: 1; min-width: 0; }
 .now-playing .np-title { font-weight: 700; font-size: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .now-playing .np-artist { color: var(--dim); font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .now-playing .np-album { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 900px) {
+  .now-playing .np-title { font-size: 1.8em; }
+  .now-playing .np-artist { font-size: 1.3em; }
+  .now-playing .np-album { font-size: 1.1em; }
+}
 
 /* Playback controls */
 .playback-controls { display: flex; justify-content: center; gap: 16px; margin-top: 10px; }
@@ -143,6 +148,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .q-item:last-child { border: none; }
 .q-item:hover { background: rgba(255,255,255,0.04); }
 .q-item.q-current { color: var(--accent); font-weight: 600; }
+.q-item .q-play { color: var(--dim); display: flex; align-items: center; flex-shrink: 0; }
+.q-item .q-play .material-symbols-outlined { font-size: 18px; }
+.q-item.q-current .q-play { color: var(--accent); }
+.q-item:hover .q-play .material-symbols-outlined { content: 'play_arrow'; }
 .q-item .q-idx { color: var(--dim); min-width: 24px; text-align: right; font-size: 0.75em; }
 .q-item .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q-item .q-dur { color: var(--dim); font-size: 0.75em; min-width: 32px; text-align: right; }
