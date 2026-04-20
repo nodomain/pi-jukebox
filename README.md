@@ -86,7 +86,21 @@ After reboot the Pi auto-connects and starts streaming.
 ### 5. Deploy dashboard updates
 
 ```bash
-./scripts/deploy.sh
+make deploy
+```
+
+## Make Targets
+
+```
+make help      — show all targets
+make deploy    — deploy web dashboard to the Pi
+make setup     — copy scripts to Pi and run setup.sh
+make pair      — run pair-bt.sh on the Pi
+make status    — show service + BT + Snapcast status
+make logs      — tail service logs
+make restart   — restart all jukebox services
+make reboot    — reboot the Pi
+make ssh       — open SSH session
 ```
 
 ## What Gets Configured
@@ -112,10 +126,10 @@ After reboot the Pi auto-connects and starts streaming.
 ```
 .
 ├── .env.example              # Environment variable template
+├── Makefile                  # Dev machine targets (deploy, setup, logs, status, ...)
 ├── scripts/
-│   ├── setup.sh              # Pi provisioning (run on Pi as root)
-│   ├── pair-bt.sh            # Bluetooth pairing (run on Pi as root)
-│   └── deploy.sh             # Deploy dashboard (run from dev machine)
+│   ├── setup.sh              # Pi provisioning — idempotent (run on Pi as root)
+│   └── pair-bt.sh            # Bluetooth pairing (run on Pi as root)
 └── web/                      # Flask dashboard (deployed to /opt/jukebox/)
     ├── app.py                # All API routes, SSE endpoints, MA WebSocket relay
     ├── cava.conf             # cava config (48 bars, PipeWire input, ASCII output)

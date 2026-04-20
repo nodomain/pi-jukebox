@@ -3,6 +3,7 @@
 # Provisions a fresh Raspberry Pi OS Lite (64-bit) as a Snapcast client
 # with Bluetooth A2DP output.
 #
+# Idempotent — safe to run multiple times.
 # Run as root: sudo ./setup.sh
 #
 # After reboot, run pair-bt.sh to pair the speaker.
@@ -22,50 +23,103 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-echo "==> Configuring passwordless sudo for ${JUKEBOX_USER}"
-echo "${JUKEBOX_USER} ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/${JUKEBOX_USER}"
-chmod 440 "/etc/sudoers.d/${JUKEBOX_USER}"
+UID_NUM=$(id -u "${JUKEBOX_USER}")
+CARD_NAME="bluez_card.${BT_MAC//:/_}"
 
-echo "==> Adding ${JUKEBOX_USER} to bluetooth group"
-usermod -aG bluetooth "${JUKEBOX_USER}"
+# --- Helper ---
+ensure_file() {
+    # Write content to file only if it differs. Usage: ensure_file <path> <content>
+    local path="$1" content="$2"
+    mkdir -p "$(dirname "$path")"
+    if [[ ! -f "$path" ]] || [[ "$(cat "$path")" != "$content" ]]; then
+        printf '%s\n' "$content" > "$path"
+        echo "  updated $path"
+        return 0  # changed
+    fi
+    return 1  # unchanged
+}
 
-echo "==> Enabling user linger for ${JUKEBOX_USER}"
-loginctl enable-linger "${JUKEBOX_USER}"
+# --- Sudoers ---
+echo "==> Passwordless sudo"
+SUDOERS_LINE="${JUKEBOX_USER} ALL=(ALL) NOPASSWD: ALL"
+SUDOERS_FILE="/etc/sudoers.d/${JUKEBOX_USER}"
+if [[ ! -f "$SUDOERS_FILE" ]] || ! grep -qF "$SUDOERS_LINE" "$SUDOERS_FILE"; then
+    echo "$SUDOERS_LINE" > "$SUDOERS_FILE"
+    chmod 440 "$SUDOERS_FILE"
+    echo "  configured"
+else
+    echo "  already configured"
+fi
 
-echo "==> Installing packages"
-apt-get update -qq
-apt-get install -y -qq snapclient bluez pipewire pipewire-pulse wireplumber \
+# --- User groups ---
+echo "==> Bluetooth group"
+if id -nG "${JUKEBOX_USER}" | grep -qw bluetooth; then
+    echo "  already in group"
+else
+    usermod -aG bluetooth "${JUKEBOX_USER}"
+    echo "  added"
+fi
+
+# --- User linger ---
+echo "==> User linger"
+if [[ -f "/var/lib/systemd/linger/${JUKEBOX_USER}" ]]; then
+    echo "  already enabled"
+else
+    loginctl enable-linger "${JUKEBOX_USER}"
+    echo "  enabled"
+fi
+
+# --- Packages ---
+echo "==> Packages"
+PACKAGES=(snapclient bluez pipewire pipewire-pulse wireplumber
     libspa-0.2-bluetooth pulseaudio-utils rfkill cava
+    python3-flask python3-websocket)
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+    if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+        MISSING+=("$pkg")
+    fi
+done
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    apt-get update -qq
+    apt-get install -y -qq "${MISSING[@]}"
+    echo "  installed: ${MISSING[*]}"
+else
+    echo "  all installed"
+fi
 
-echo "==> Configuring snapclient"
-cat > /etc/default/snapclient << EOF
-SNAPCLIENT_OPTS="--host ${SNAPCAST_SERVER} --player pulse"
-EOF
+# --- Snapclient config ---
+echo "==> Snapclient"
+ensure_file /etc/default/snapclient \
+    "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse\"" || true
 
 mkdir -p /etc/systemd/system/snapclient.service.d
-UID_NUM=$(id -u "${JUKEBOX_USER}")
-cat > /etc/systemd/system/snapclient.service.d/override.conf << EOF
-[Service]
+ensure_file /etc/systemd/system/snapclient.service.d/override.conf \
+"[Service]
 User=${JUKEBOX_USER}
 Group=${JUKEBOX_USER}
-Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse
-EOF
+Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse" || true
 
-echo "==> Configuring Bluetooth"
-sed -i 's/^#AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
-sed -i 's/^AutoEnable=false/AutoEnable=true/' /etc/bluetooth/main.conf
+# --- Bluetooth ---
+echo "==> Bluetooth auto-enable"
+if grep -q '^AutoEnable=true' /etc/bluetooth/main.conf 2>/dev/null; then
+    echo "  already enabled"
+else
+    sed -i 's/^#AutoEnable.*/AutoEnable=true/' /etc/bluetooth/main.conf
+    sed -i 's/^AutoEnable=false/AutoEnable=true/' /etc/bluetooth/main.conf
+    echo "  enabled"
+fi
 
-echo "==> Disabling WiFi power save (reduces audio latency)"
-mkdir -p /etc/NetworkManager/conf.d
-cat > /etc/NetworkManager/conf.d/wifi-powersave.conf << 'EOF'
-[connection]
-wifi.powersave = 2
-EOF
+# --- WiFi power save ---
+echo "==> WiFi power save"
+ensure_file /etc/NetworkManager/conf.d/wifi-powersave.conf \
+"[connection]
+wifi.powersave = 2" || true
 
-echo "==> Creating WiFi roaming helper"
+# --- WiFi roaming ---
+echo "==> WiFi roaming helper"
 cat > /usr/local/bin/wifi-roam << 'ROAM'
 #!/usr/bin/env bash
-# WiFi roaming helper - checks signal strength and triggers rescan if weak
 THRESHOLD=-70
 IFACE=wlan0
 while true; do
@@ -80,8 +134,8 @@ done
 ROAM
 chmod +x /usr/local/bin/wifi-roam
 
-cat > /etc/systemd/system/wifi-roam.service << 'EOF'
-[Unit]
+ensure_file /etc/systemd/system/wifi-roam.service \
+"[Unit]
 Description=WiFi roaming helper
 After=NetworkManager.service
 Wants=NetworkManager.service
@@ -92,22 +146,19 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target" || true
 
-echo "==> Disabling WirePlumber seat monitoring (headless fix)"
-mkdir -p /etc/wireplumber/wireplumber.conf.d
-cat > /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf << 'EOF'
-wireplumber.profiles = {
+# --- WirePlumber ---
+echo "==> WirePlumber headless fix + SBC-XQ"
+ensure_file /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf \
+'wireplumber.profiles = {
   main = {
     monitor.bluez.seat-monitoring = disabled
   }
-}
-EOF
+}' || true
 
-echo "==> Configuring SBC-XQ codec preference"
-cat > /etc/wireplumber/wireplumber.conf.d/51-bluez-sbc-xq.conf << 'EOF'
-monitor.bluez.rules = [
+ensure_file /etc/wireplumber/wireplumber.conf.d/51-bluez-sbc-xq.conf \
+'monitor.bluez.rules = [
   {
     matches = [
       { device.name = "~bluez_card.*" }
@@ -133,32 +184,34 @@ device.profile.priority.rules = [
       ]
     }
   }
-]
-EOF
+]' || true
 
-echo "==> Reducing SD card writes"
-# tmpfs for log and tmp
-FSTAB_ROOT=$(grep 'PARTUUID.*/$' /etc/fstab || grep 'PARTUUID.*/[[:space:]]' /etc/fstab | head -1)
-ROOT_UUID=$(echo "$FSTAB_ROOT" | awk '{print $1}')
-BOOT_UUID=$(grep 'boot/firmware' /etc/fstab | awk '{print $1}')
-cat > /etc/fstab << EOF
+# --- SD card protection ---
+echo "==> SD card writes"
+# Only rewrite fstab if tmpfs mounts are missing
+if ! grep -q 'tmpfs.*/var/log' /etc/fstab 2>/dev/null; then
+    FSTAB_ROOT=$(grep 'PARTUUID.*/ ' /etc/fstab || grep 'PARTUUID.*/[[:space:]]' /etc/fstab | head -1)
+    ROOT_UUID=$(echo "$FSTAB_ROOT" | awk '{print $1}')
+    BOOT_UUID=$(grep 'boot/firmware' /etc/fstab | awk '{print $1}')
+    cat > /etc/fstab << EOF
 proc            /proc           proc    defaults          0       0
 ${BOOT_UUID}  /boot/firmware  vfat    defaults          0       2
 ${ROOT_UUID}  /               ext4    defaults,noatime,commit=120  0       1
 tmpfs           /var/log        tmpfs   defaults,noatime,nosuid,nodev,noexec,size=20m  0  0
 tmpfs           /var/tmp        tmpfs   defaults,noatime,nosuid,nodev,size=20m  0  0
 EOF
+    echo "  fstab updated"
+else
+    echo "  fstab already has tmpfs"
+fi
 
-# Volatile journal (RAM only)
-mkdir -p /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/volatile.conf << 'EOF'
-[Journal]
+ensure_file /etc/systemd/journald.conf.d/volatile.conf \
+"[Journal]
 Storage=volatile
-RuntimeMaxUse=10M
-EOF
+RuntimeMaxUse=10M" || true
 
-echo "==> Creating Bluetooth watchdog"
-CARD_NAME="bluez_card.${BT_MAC//:/_}"
+# --- Bluetooth watchdog ---
+echo "==> Bluetooth watchdog"
 cat > /usr/local/bin/bt-watchdog << WATCHDOG
 #!/usr/bin/env bash
 MAC="${BT_MAC}"
@@ -175,7 +228,6 @@ fi
 while true; do
     if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
         if [ "\$WAS_CONNECTED" = false ]; then
-            # Just reconnected — switch to SBC-XQ and start snapclient
             sleep 2
             DEV_ID=\$(su - ${JUKEBOX_USER} -c "\$PW_ENV pw-cli list-objects 2>/dev/null" | grep -B20 "\$CARD" | grep "^.id " | tail -1 | awk '{print \$2}' | tr -d ',')
             if [ -n "\$DEV_ID" ]; then
@@ -192,7 +244,6 @@ while true; do
             WAS_CONNECTED=true
         fi
     else
-        # Not connected — stop snapclient so MA pauses, then try reconnect
         if [ "\$WAS_CONNECTED" = true ]; then
             systemctl stop snapclient
             WAS_CONNECTED=false
@@ -204,8 +255,8 @@ done
 WATCHDOG
 chmod +x /usr/local/bin/bt-watchdog
 
-cat > /etc/systemd/system/bt-autoconnect.service << EOF
-[Unit]
+ensure_file /etc/systemd/system/bt-autoconnect.service \
+"[Unit]
 Description=Auto-connect to ${BT_DEVICE_NAME} via Bluetooth
 After=bluetooth.service
 Wants=bluetooth.service
@@ -216,20 +267,17 @@ Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target" || true
 
-echo "==> Installing Flask and websocket-client for web dashboard"
-apt-get install -y -qq python3-flask python3-websocket
-
-echo "==> Deploying web dashboard"
+# --- Web dashboard ---
+echo "==> Web dashboard"
 mkdir -p /opt/jukebox/templates
-cp -r "${SCRIPT_DIR}/web/app.py" /opt/jukebox/
-cp -r "${SCRIPT_DIR}/web/cava.conf" /opt/jukebox/
-cp -r "${SCRIPT_DIR}/web/templates/" /opt/jukebox/templates/
+cp "${SCRIPT_DIR}/../web/app.py" /opt/jukebox/app.py
+cp "${SCRIPT_DIR}/../web/cava.conf" /opt/jukebox/cava.conf
+cp "${SCRIPT_DIR}/../web/templates/index.html" /opt/jukebox/templates/index.html
 
-cat > /etc/systemd/system/jukebox-web.service << EOF
-[Unit]
+ensure_file /etc/systemd/system/jukebox-web.service \
+"[Unit]
 Description=Jukebox Pi Web Dashboard
 After=network.target pipewire.service
 
@@ -245,20 +293,30 @@ Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
-EOF
+WantedBy=multi-user.target" || true
 
+# --- Enable services ---
+echo "==> Enabling services"
 systemctl daemon-reload
-systemctl enable snapclient bt-autoconnect bluetooth wifi-roam jukebox-web
+SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web)
+for svc in "${SERVICES[@]}"; do
+    if systemctl is-enabled "$svc" &>/dev/null; then
+        echo "  $svc already enabled"
+    else
+        systemctl enable "$svc"
+        echo "  $svc enabled"
+    fi
+done
 
+# --- Disable unnecessary timers ---
 echo "==> Disabling unnecessary timers"
-systemctl disable --now \
-    apt-daily.timer \
-    apt-daily-upgrade.timer \
-    man-db.timer \
-    fstrim.timer \
-    e2scrub_all.timer \
-    2>/dev/null || true
+TIMERS=(apt-daily.timer apt-daily-upgrade.timer man-db.timer fstrim.timer e2scrub_all.timer)
+for timer in "${TIMERS[@]}"; do
+    if systemctl is-enabled "$timer" &>/dev/null; then
+        systemctl disable --now "$timer" 2>/dev/null || true
+        echo "  $timer disabled"
+    fi
+done
 
 echo ""
 echo "=== Setup complete ==="
