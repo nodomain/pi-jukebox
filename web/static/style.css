@@ -73,9 +73,15 @@ button.secondary { background: var(--border); color: var(--text); }
 .device-list li:last-child { border: none; }
 
 input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
-.vol-row { display: flex; align-items: center; gap: 10px; }
-.vol-row span { min-width: 36px; text-align: right; font-size: 0.9em; }
-.vol-label { font-size: 0.7em; color: var(--dim); min-width: 52px !important; text-align: left !important; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Volume controls — side by side */
+.vol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.vol-item { display: flex; align-items: center; gap: 8px; }
+.vol-item .vol-icon { color: var(--dim); display: flex; align-items: center; }
+.vol-item .vol-icon .material-symbols-outlined { font-size: 20px; }
+.vol-item input[type=range] { flex: 1; min-width: 0; }
+.vol-item .vol-val { min-width: 36px; text-align: right; font-size: 0.8em; color: var(--dim); }
+.vol-item .vol-label { font-size: 0.65em; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
 .grid-4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; }
@@ -121,8 +127,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .card.player-card .bg-blur {
   position: absolute; inset: -20px; z-index: -1;
   background-size: cover; background-position: center;
-  filter: blur(30px) brightness(0.4); transition: background-image 1.5s ease;
+  filter: blur(30px) brightness(0.3); transition: background-image 1.5s ease;
 }
+/* Text readability on blurred background */
+.card.player-card .np-title,
+.card.player-card .np-artist,
+.card.player-card .np-album,
+.card.player-card h2 { text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+.card.player-card .np-title { color: #fff; }
+.card.player-card .np-artist,
+.card.player-card .np-album { color: rgba(255,255,255,0.75); }
 
 /* Queue items */
 .q-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 0.8em; cursor: pointer; }
@@ -139,7 +153,15 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 .ctrl-btn:hover { background: rgba(255,255,255,0.1); }
 
 /* Light theme overrides */
-.light .card.player-card .bg-blur { filter: blur(30px) brightness(0.7); }
+.light .card.player-card .bg-blur { filter: blur(30px) brightness(0.25); }
+.light .card.player-card { color: #fff; }
+.light .card.player-card .playback-controls button { color: #fff; }
+.light .card.player-card .playback-controls button:disabled { color: rgba(255,255,255,0.3); }
+.light .card.player-card .vol-item .vol-icon,
+.light .card.player-card .vol-item .vol-val,
+.light .card.player-card .vol-item .vol-label { color: rgba(255,255,255,0.7); }
+.light .card.player-card #np-meta-row { color: rgba(255,255,255,0.6); }
+.light .card.player-card #np-next { color: rgba(255,255,255,0.6); }
 .light .flag-ok { background: #e8f5e9; color: #2e7d32; }
 .light .flag-warn { background: #ffebee; color: #c62828; }
 .light .badge-green { background: #e8f5e9; color: #2e7d32; }
