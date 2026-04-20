@@ -4,36 +4,19 @@
  */
 
 import { initTheme, toggleTheme } from './theme.js';
-import { initCharts, pollStats, pollJitter, handleStats } from './charts.js';
+import { initCharts, pollStats, pollJitter } from './charts.js';
 import {
   updateProgress, pollSnapcast, pollMaVolume, pollMaQueue,
   initVolumeSliders, initSeekBar, initSwipeGestures,
   snapControl, togglePlayPause,
-  handleSnapcastStatus, handleAudioStatus, handleBtStatus,
 } from './player.js';
 import { toggleQueue, clearQueue, toggleShuffle, toggleRepeat, initQueueEvents } from './queue.js';
 import { connectSSE } from './sse.js';
 import { initFFT } from './fft.js';
 import { pollBt, btScan, btDisconnect, svcAction, initSystemEvents } from './system.js';
 
-/**
- * Shared application state.
- * Exported so all modules can read/write the same object.
- */
-export const state = {
-  currentStreamId: '',
-  isPlaying: false,
-  currentQueueId: '',
-  queueVisible: false,
-  lastImageUrl: '',
-  currentShuffle: false,
-  currentRepeat: 'off',
-  maPlayerId: '',
-  npDuration: 0,
-  npElapsed: 0,
-  npElapsedAt: 0,
-  npServerTime: 0,
-};
+// Re-export state for any module that still imports from main
+export { state } from './state.js';
 
 // Expose action functions to inline onclick handlers in the HTML template
 window.toggleTheme = toggleTheme;
@@ -69,10 +52,8 @@ function init() {
 
   // Only poll what SSE doesn't cover
   setInterval(pollMaVolume, 10000);
-  setInterval(pollJitter, 10000);
   setInterval(pollMaQueue, 10000);
   setInterval(pollJitter, 10000);
-  setInterval(pollMaQueue, 10000);
 
   // Progress bar interpolation
   setInterval(updateProgress, 1000);

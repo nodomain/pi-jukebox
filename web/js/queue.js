@@ -3,7 +3,7 @@
  * @module queue
  */
 
-import { state } from './main.js';
+import { state } from './state.js';
 import { fetchMaQueueItems, maQueueAction } from './api.js';
 import { fmtTime } from './player.js';
 

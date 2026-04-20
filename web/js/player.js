@@ -3,7 +3,7 @@
  * @module player
  */
 
-import { state } from './main.js';
+import { state } from './state.js';
 import {
   fetchSnapcastStatus, snapcastControl,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
@@ -247,7 +247,7 @@ export async function pollMaQueue() {
       document.getElementById('queue-count').textContent = '(' + d.queue_total + ')';
     }
   } catch (e) {
-    // Ignore
+    // Ignore poll errors
   }
 }
 

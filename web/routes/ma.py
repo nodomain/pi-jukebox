@@ -56,10 +56,11 @@ def _ws_broadcast(event_type, data):
             sse_clients.remove(client_q)
     # Also broadcast to unified SSE
     try:
-        from routes.events import broadcast  # pylint: disable=import-outside-toplevel
-        broadcast(event_type, data)
-    except ImportError:
-        pass
+        from routes.events import broadcast as unified_broadcast  # pylint: disable=import-outside-toplevel
+        unified_broadcast(event_type, data)
+    except Exception as exc:  # pylint: disable=broad-except
+        import logging  # pylint: disable=import-outside-toplevel
+        logging.getLogger(__name__).warning("unified broadcast failed: %s", exc)
 
 
 def _ws_handle_message(msg):
@@ -107,7 +108,7 @@ def ma_ws_thread(app):
 
     while True:
         try:
-            ws = websocket.create_connection(url, timeout=10)
+            ws = websocket.create_connection(url, timeout=60)
             ws.recv()  # server info message
             ws.send(json.dumps({
                 "message_id": next_id(),
@@ -135,7 +136,7 @@ def ma_ws_thread(app):
                     break
                 _ws_handle_message(json.loads(raw))
 
-        except (OSError, ValueError) as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             app.logger.warning("MA WS error: %s", exc)
             ma_state["connected"] = False
         time.sleep(5)
@@ -222,16 +223,14 @@ def ma_events():
 
 
 def _fetch_active_queue():
-    """Fetch the active playing queue from MA, trying WS cache first.
+    """Fetch the active playing queue from MA via HTTP.
+
+    Always fetches fresh data to avoid stale timing info from WS cache.
 
     Returns:
         Queue dict if found, empty dict if no active queue, or None if
         MA is unreachable.
     """
-    with ma_state["lock"]:
-        if ma_state["queue"] and ma_state["queue"].get("state") == "playing":
-            return ma_state["queue"]
-
     raw = run(
         f"curl -s -m 3 'http://{SNAPCAST_SERVER}:8095/api' "
         f"-H 'Content-Type: application/json' "
