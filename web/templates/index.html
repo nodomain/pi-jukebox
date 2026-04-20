@@ -715,8 +715,8 @@ connectSSE();
 (function() {
   const canvas = document.getElementById('fft-canvas');
   const ctx = canvas.getContext('2d');
-  let bars = new Array(48).fill(0);
-  let targetBars = new Array(48).fill(0);
+  let bars = new Array(32).fill(0);
+  let targetBars = new Array(32).fill(0);
   let animId = null;
 
   function resize() {
@@ -758,7 +758,10 @@ connectSSE();
   fftEs.onmessage = function(e) {
     if (e.data === 'error') return;
     const vals = e.data.split(';').filter(Boolean).map(Number);
-    if (vals.length > 0) targetBars = vals;
+    if (vals.length > 0) {
+      targetBars = vals;
+      if (bars.length !== vals.length) bars = new Array(vals.length).fill(0);
+    }
   };
   fftEs.onerror = function() { fftEs.close(); setTimeout(connectFFT, 5000); };
   function connectFFT() {

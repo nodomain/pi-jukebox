@@ -818,36 +818,89 @@ def service_control(action):
     return jsonify({"error": "unknown action"}), 400
 
 
-# --- FFT Visualizer via cava ---
+# --- FFT Visualizer via cava (on-demand) ---
 
 CAVA_CONF = os.path.join(os.path.dirname(__file__), "cava.conf")
+
+# Shared cava process — starts when first browser connects, stops when last disconnects
+_cava_lock = threading.Lock()
+_cava_proc = None  # pylint: disable=invalid-name
+_cava_clients = []  # list of queue.Queue
+
+
+def _cava_reader():
+    """Background thread: read cava stdout and broadcast to all SSE clients."""
+    try:
+        for line in _cava_proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            msg = f"data: {line}\n\n"
+            with _cava_lock:
+                dead = []
+                for q in _cava_clients:
+                    try:
+                        q.put_nowait(msg)
+                    except queue.Full:
+                        dead.append(q)
+                for q in dead:
+                    _cava_clients.remove(q)
+    except (OSError, ValueError):
+        pass
+
+
+def _cava_start():
+    """Start the shared cava process if not already running."""
+    global _cava_proc  # pylint: disable=global-statement
+    if _cava_proc is not None and _cava_proc.poll() is None:
+        return
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = "/run/user/1000"
+    try:
+        _cava_proc = subprocess.Popen(
+            ["cava", "-p", CAVA_CONF],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=env, bufsize=1, text=True,
+        )
+        t = threading.Thread(target=_cava_reader, daemon=True)
+        t.start()
+        app.logger.info("cava started (pid %d)", _cava_proc.pid)
+    except OSError as e:
+        app.logger.warning("cava failed to start: %s", e)
+
+
+def _cava_stop():
+    """Stop the shared cava process if no clients remain."""
+    global _cava_proc  # pylint: disable=global-statement
+    if _cava_proc is None:
+        return
+    if _cava_proc.poll() is None:
+        _cava_proc.terminate()
+        app.logger.info("cava stopped")
+    _cava_proc = None
 
 
 @app.route("/api/fft/stream")
 def fft_stream():
     """SSE endpoint: stream cava FFT data to browser."""
     def stream():
-        env = os.environ.copy()
-        env["XDG_RUNTIME_DIR"] = "/run/user/1000"
-        proc = None
+        q = queue.Queue(maxsize=30)
+        with _cava_lock:
+            _cava_clients.append(q)
+            _cava_start()
         try:
-            with subprocess.Popen(
-                ["cava", "-p", CAVA_CONF],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                env=env, bufsize=1, text=True,
-            ) as proc:
-                for line in proc.stdout:
-                    line = line.strip()
-                    if line:
-                        yield f"data: {line}\n\n"
-        except OSError:
-            yield "data: error\n\n"
-        finally:
-            if proc is not None:
+            while True:
                 try:
-                    proc.terminate()
-                except OSError:
-                    pass
+                    msg = q.get(timeout=30)
+                    yield msg
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+        finally:
+            with _cava_lock:
+                if q in _cava_clients:
+                    _cava_clients.remove(q)
+                if not _cava_clients:
+                    _cava_stop()
 
     return Response(
         stream(), mimetype="text/event-stream",
