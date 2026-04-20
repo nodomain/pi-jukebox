@@ -91,7 +91,7 @@ fi
 # --- Snapclient config ---
 echo "==> Snapclient"
 ensure_file /etc/default/snapclient \
-    "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse\"" || true
+    "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse --latency 100\"" || true
 
 mkdir -p /etc/systemd/system/snapclient.service.d
 ensure_file /etc/systemd/system/snapclient.service.d/override.conf \
