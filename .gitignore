@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 .vscode/
+node_modules/
+web/node_modules/
+web/static/app.js
+web/package-lock.json
