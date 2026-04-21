@@ -232,11 +232,23 @@ switch_codec() {
     fi
 }
 
+wait_for_sink() {
+    # Wait until the BT sink is the default PipeWire sink (up to 15s)
+    for i in \$(seq 1 15); do
+        if su - ${JUKEBOX_USER} -c "\$PW_ENV wpctl status 2>/dev/null" | grep -A1 'Audio/Sink' | grep -qi 'bluez\|${BT_MAC//:/_}'; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 sleep 10
 # Initialize state: sync snapclient with BT connection
 if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
     WAS_CONNECTED=true
     switch_codec
+    wait_for_sink
     systemctl is-active --quiet snapclient || systemctl start snapclient
 else
     systemctl stop snapclient 2>/dev/null || true
@@ -246,7 +258,7 @@ while true; do
         if [ "\$WAS_CONNECTED" = false ]; then
             sleep 2
             switch_codec
-            sleep 2
+            wait_for_sink
             systemctl start snapclient
             WAS_CONNECTED=true
         fi
@@ -257,7 +269,7 @@ while true; do
         fi
         bluetoothctl connect "\$MAC" 2>/dev/null || true
     fi
-    sleep 15
+    sleep 5
 done
 WATCHDOG
 chmod +x /usr/local/bin/bt-watchdog
@@ -280,13 +292,21 @@ WantedBy=multi-user.target" || true
 echo "==> Web dashboard"
 WEB_SRC="${SCRIPT_DIR}/../web"
 mkdir -p /opt/jukebox/templates /opt/jukebox/static /opt/jukebox/routes
-cp "${WEB_SRC}/app.py" /opt/jukebox/app.py
-cp "${WEB_SRC}/helpers.py" /opt/jukebox/helpers.py
-cp "${WEB_SRC}/cava.conf" /opt/jukebox/cava.conf
-cp "${WEB_SRC}"/routes/*.py /opt/jukebox/routes/
-cp "${WEB_SRC}"/static/style.css /opt/jukebox/static/
-cp "${WEB_SRC}"/static/app.js /opt/jukebox/static/
-cp "${WEB_SRC}/templates/index.html" /opt/jukebox/templates/index.html
+if [[ -d "$WEB_SRC" ]]; then
+    cp "${WEB_SRC}/app.py" /opt/jukebox/app.py
+    cp "${WEB_SRC}/helpers.py" /opt/jukebox/helpers.py
+    cp "${WEB_SRC}/cava.conf" /opt/jukebox/cava.conf
+    cp "${WEB_SRC}"/routes/*.py /opt/jukebox/routes/
+    cp "${WEB_SRC}"/static/style.css /opt/jukebox/static/
+    cp "${WEB_SRC}"/static/app.js /opt/jukebox/static/
+    cp "${WEB_SRC}"/static/manifest.json /opt/jukebox/static/ 2>/dev/null || true
+    cp "${WEB_SRC}"/static/favicon.svg /opt/jukebox/static/ 2>/dev/null || true
+    cp "${WEB_SRC}"/static/icon-*.png /opt/jukebox/static/ 2>/dev/null || true
+    cp "${WEB_SRC}/templates/index.html" /opt/jukebox/templates/index.html
+    echo "  files copied"
+else
+    echo "  web/ not found, skipping (use 'make deploy' instead)"
+fi
 
 ensure_file /etc/systemd/system/jukebox-web.service \
 "[Unit]

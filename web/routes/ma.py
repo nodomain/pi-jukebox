@@ -650,8 +650,8 @@ def ma_playlists():
     """List all playlists from MA library."""
     if not MA_TOKEN:
         return jsonify({"error": "MA_TOKEN not configured"}), 500
-    data = ma_rpc("music/playlists", {
-        "in_library": True, "limit": 100, "offset": 0,
+    data = ma_rpc("music/playlists/library_items", {
+        "limit": 100, "offset": 0,
     })
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
