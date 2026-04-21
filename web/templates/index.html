@@ -10,7 +10,7 @@
 <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
 <title>Jukebox Pi</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=bluetooth,dark_mode,equalizer,light_mode,music_note,pause,play_arrow,power_settings_new,queue_music,repeat,repeat_one,restart_alt,shuffle,skip_next,skip_previous,volume_up,wifi">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=bedtime,bluetooth,close,dark_mode,equalizer,expand_less,expand_more,favorite,light_mode,music_note,pause,play_arrow,power_settings_new,queue_music,repeat,repeat_one,restart_alt,search,shuffle,skip_next,skip_previous,timer,volume_up,wifi">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -41,6 +41,8 @@
         <button id="btn-playpause" onclick="togglePlayPause()" disabled><span class="material-symbols-outlined">play_arrow</span></button>
         <button id="btn-next" onclick="snapControl('next')" disabled><span class="material-symbols-outlined">skip_next</span></button>
         <button id="np-repeat" onclick="toggleRepeat()" style="display:none" title="Repeat"><span class="material-symbols-outlined">repeat</span></button>
+        <button id="btn-favorite" onclick="toggleFavorite()" title="Favorite" class="ctrl-btn"><span class="material-symbols-outlined">favorite</span></button>
+        <button id="btn-sleep" onclick="showSleepMenu()" title="Sleep Timer" class="ctrl-btn"><span class="material-symbols-outlined">bedtime</span><span id="sleep-timer-status" style="font-size:0.6em; display:none; margin-left:2px"></span></button>
       </div>
       <div class="np-progress">
         <span id="np-pos">0:00</span>
@@ -66,14 +68,19 @@
         <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
       </div>
       <!-- Volume controls -->
-      <div class="vol-grid">
+      <div class="vol-grid vol-grid-3">
         <div class="vol-item">
-          <div class="vol-icon"><span class="material-symbols-outlined">music_note</span></div>
+          <div class="vol-icon" title="Music Assistant"><span class="material-symbols-outlined">music_note</span></div>
           <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
           <span class="vol-val" id="ma-vol-val">—</span>
         </div>
         <div class="vol-item">
-          <div class="vol-icon"><span class="material-symbols-outlined">volume_up</span></div>
+          <div class="vol-icon" title="Snapcast"><span class="material-symbols-outlined">queue_music</span></div>
+          <input type="range" id="snap-vol-slider" min="0" max="100" value="100">
+          <span class="vol-val" id="snap-vol-val">—</span>
+        </div>
+        <div class="vol-item">
+          <div class="vol-icon" title="PipeWire"><span class="material-symbols-outlined">volume_up</span></div>
           <input type="range" id="vol-slider" min="0" max="100" value="30">
           <span class="vol-val" id="vol-val">—</span>
         </div>
@@ -86,6 +93,39 @@
 <div class="card" id="lyrics-card" style="display:none">
   <h2>Lyrics</h2>
   <pre id="lyrics-text" style="white-space:pre-wrap; font-size:0.8em; color:var(--dim); max-height:200px; overflow-y:auto; margin:0; font-family:inherit; line-height:1.6"></pre>
+</div>
+
+<!-- Search -->
+<div class="card" id="search-card">
+  <div style="display:flex; gap:8px; align-items:center">
+    <span class="material-symbols-outlined" style="color:var(--dim)">search</span>
+    <input type="text" id="search-input" placeholder="Search tracks, albums, playlists..." style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px 12px; color:var(--text); font-size:0.9em; outline:none">
+  </div>
+  <div class="search-filters" id="search-filters">
+    <button class="chip active" data-filter="track,album,playlist">All</button>
+    <button class="chip" data-filter="track">Tracks</button>
+    <button class="chip" data-filter="album">Albums</button>
+    <button class="chip" data-filter="playlist">Playlists</button>
+  </div>
+  <div id="search-results" style="max-height:300px; overflow-y:auto; display:none"></div>
+</div>
+
+<!-- Recently Played -->
+<div class="card" id="recent-card" style="display:none">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+    <h2 style="margin:0">Recently Played</h2>
+    <button onclick="toggleRecent()" class="secondary" style="padding:4px 10px; font-size:0.75em" id="btn-recent-toggle">Hide</button>
+  </div>
+  <div id="recent-list" style="max-height:300px; overflow-y:auto"></div>
+</div>
+
+<!-- Playlists -->
+<div class="card" id="playlists-card" style="display:none">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+    <h2 style="margin:0">Playlists</h2>
+    <button onclick="togglePlaylists()" class="secondary" style="padding:4px 10px; font-size:0.75em" id="btn-playlists-toggle">Hide</button>
+  </div>
+  <div id="playlists-list" style="max-height:300px; overflow-y:auto"></div>
 </div>
 
 <!-- Queue Browser -->

@@ -72,6 +72,7 @@ def snapcast_status_data():
             stream_id = group["stream_id"]
             for client in group["clients"]:
                 clients.append({
+                    "id": client["id"],
                     "name": client["config"]["name"] or client["host"]["name"],
                     "ip": client["host"]["ip"],
                     "connected": client["connected"],
@@ -177,3 +178,35 @@ def snapcast_jitter():
                 {"ts": ts, "type": match.group(1), "us": int(match.group(2))}
             )
     return jsonify({"points": points})
+
+
+# --- Client volume ---
+
+
+@snap_bp.route("/api/snapcast/client/volume", methods=["POST"])
+def snapcast_client_volume():
+    """Set Snapcast client volume."""
+    body = request.json or {}
+    client_id = body.get("client_id", "")
+    volume = body.get("volume")
+    muted = body.get("muted")
+    if not client_id or volume is None:
+        return jsonify({"error": "Missing client_id or volume"}), 400
+    vol_obj = {"percent": max(0, min(100, int(volume))), "muted": bool(muted) if muted is not None else False}
+    result = snapcast_rpc("Client.SetVolume", {"id": client_id, "volume": vol_obj})
+    return jsonify({"result": result or "ok"})
+
+
+# --- Client latency ---
+
+
+@snap_bp.route("/api/snapcast/client/latency", methods=["POST"])
+def snapcast_client_latency():
+    """Set Snapcast client latency offset (ms)."""
+    body = request.json or {}
+    client_id = body.get("client_id", "")
+    latency = body.get("latency")
+    if not client_id or latency is None:
+        return jsonify({"error": "Missing client_id or latency"}), 400
+    result = snapcast_rpc("Client.SetLatency", {"id": client_id, "latency": int(latency)})
+    return jsonify({"result": result or "ok"})

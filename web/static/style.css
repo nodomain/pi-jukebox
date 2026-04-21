@@ -76,6 +76,8 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 
 /* Volume controls — side by side */
 .vol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.vol-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 500px) { .vol-grid-3 { grid-template-columns: 1fr; } }
 .vol-item { display: flex; align-items: center; gap: 8px; }
 .vol-item .vol-icon { color: var(--dim); display: flex; align-items: center; }
 .vol-item .vol-icon .material-symbols-outlined { font-size: 20px; }
@@ -221,3 +223,68 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   border-radius: 6px;
 }
 .theme-toggle:hover { background: var(--border); }
+
+
+/* Favorite button */
+#btn-favorite { opacity: 0.3; }
+#btn-favorite.active { opacity: 1; color: var(--red); }
+#btn-favorite .material-symbols-outlined { font-size: 24px; }
+
+/* Sleep timer button */
+#btn-sleep { opacity: 0.5; }
+#btn-sleep.active { opacity: 1; color: var(--accent); }
+#btn-sleep .material-symbols-outlined { font-size: 24px; }
+
+/* Sleep timer menu */
+.sleep-menu { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.sleep-menu button { padding: 4px 10px; font-size: 0.75em; }
+
+/* Search */
+#search-input:focus { border-color: var(--accent); }
+.search-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 0.8em; cursor: pointer; }
+.search-item:last-child { border: none; }
+.search-item:hover { background: rgba(255,255,255,0.04); }
+.search-item .s-thumb { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+.search-item .s-info { flex: 1; min-width: 0; }
+.search-item .s-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-item .s-artist { color: var(--dim); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-item .s-type { color: var(--dim); font-size: 0.7em; text-transform: uppercase; }
+.search-item .s-actions { display: flex; gap: 4px; }
+.search-item .s-actions button { background: none; border: none; color: var(--dim); padding: 2px 6px; cursor: pointer; font-size: 0.8em; border-radius: 4px; }
+.search-item .s-actions button:hover { color: var(--text); background: var(--border); }
+
+/* Recently played / playlists items */
+.recent-item, .playlist-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); font-size: 0.8em; cursor: pointer; }
+.recent-item:last-child, .playlist-item:last-child { border: none; }
+.recent-item:hover, .playlist-item:hover { background: rgba(255,255,255,0.04); }
+.recent-item .r-name, .playlist-item .pl-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-item .r-artist { color: var(--dim); font-size: 0.85em; }
+
+
+/* Album track list (expanded) */
+.search-item.expandable { cursor: pointer; }
+.search-item.expandable:hover .s-name { color: var(--accent); }
+.album-tracks { padding-left: 56px; border-left: 2px solid var(--border); margin-left: 24px; margin-bottom: 4px; }
+.album-track { display: flex; align-items: center; gap: 8px; padding: 4px 4px; border-bottom: 1px solid var(--border); font-size: 0.8em; }
+.album-track:last-child { border: none; }
+.album-track:hover { background: rgba(255,255,255,0.04); }
+.album-track .at-num { color: var(--dim); min-width: 20px; text-align: right; font-size: 0.8em; }
+.album-track .at-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.album-track .at-dur { color: var(--dim); font-size: 0.8em; min-width: 32px; text-align: right; }
+.album-track .s-actions button { background: none; border: none; color: var(--dim); padding: 2px 6px; cursor: pointer; font-size: 0.8em; border-radius: 4px; }
+.album-track .s-actions button:hover { color: var(--text); background: var(--border); }
+
+
+/* Search filter chips */
+.search-filters { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.chip {
+  background: var(--border); color: var(--dim); border: none; padding: 4px 12px;
+  border-radius: 16px; font-size: 0.75em; cursor: pointer; font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+.chip:hover { color: var(--text); }
+.chip.active { background: var(--accent); color: #fff; }
+
+
+/* Expand icon */
+.s-expand { vertical-align: middle; margin-right: 2px; }
