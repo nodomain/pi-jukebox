@@ -114,7 +114,7 @@ export function handleSnapcastStatus(d) {
   document.getElementById('btn-prev').disabled = !c.canGoPrevious && !state.currentStreamId;
   document.getElementById('btn-next').disabled = !c.canGoNext && !state.currentStreamId;
 
-  let html = d.streams.map(s =>
+  let html = d.streams.filter(s => s.metadata).map(s =>
     `<span class="badge ${s.status === 'playing' ? 'badge-green' : 'badge-orange'}">${s.status}</span> `
   ).join('');
   if (d.clients.length === 0) {
