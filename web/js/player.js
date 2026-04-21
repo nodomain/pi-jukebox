@@ -297,11 +297,15 @@ export function initVolumeSliders() {
     await setMaVolume(state.maPlayerId, vol);
   });
 
-  document.getElementById('snap-vol-slider').addEventListener('input', async function () {
+  let snapVolTimer = null;
+  document.getElementById('snap-vol-slider').addEventListener('input', function () {
     const vol = parseInt(this.value, 10);
     document.getElementById('snap-vol-val').textContent = vol + '%';
-    if (!state.snapClientId) return;
-    await setSnapcastClientVolume(state.snapClientId, vol);
+    clearTimeout(snapVolTimer);
+    snapVolTimer = setTimeout(async () => {
+      if (!state.snapClientId) return;
+      await setSnapcastClientVolume(state.snapClientId, vol);
+    }, 150);
   });
 }
 
