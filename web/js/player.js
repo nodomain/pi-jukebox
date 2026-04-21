@@ -7,6 +7,7 @@ import { state } from './state.js';
 import {
   fetchSnapcastStatus, snapcastControl,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
+  setSnapcastClientVolume, maFavorite,
 } from './api.js';
 
 /** Format seconds as m:ss. */
@@ -123,6 +124,16 @@ export function handleSnapcastStatus(d) {
     html += d.clients.map(cl =>
       `<div>${cl.connected ? '🟢' : '🔴'} ${cl.name} ${cl.volume}%${cl.muted ? ' 🔇' : ''}</div>`
     ).join('');
+    // Capture first connected client for volume/latency control
+    const myClient = d.clients.find(cl => cl.connected);
+    if (myClient) {
+      state.snapClientId = myClient.id || '';
+      const slider = document.getElementById('snap-vol-slider');
+      if (slider && !slider.matches(':active')) {
+        slider.value = myClient.volume;
+        document.getElementById('snap-vol-val').textContent = myClient.volume + '%';
+      }
+    }
   }
   document.getElementById('snapcast-info').innerHTML = html;
 }
@@ -178,13 +189,14 @@ export async function pollMaVolume() {
 export async function pollMaQueue() {
   try {
     const d = await fetchMaQueue();
+    if (d.queue_id) state.currentQueueId = d.queue_id;
     if (d.duration > 0) {
       state.npElapsed = d.elapsed_time || 0;
       state.npElapsedAt = d.server_time || (Date.now() / 1000);
       state.npDuration = d.duration || 0;
       updateProgress();
 
-      if (d.queue_id) state.currentQueueId = d.queue_id;
+      if (d.uri) state.currentTrackUri = d.uri;
 
       // Audio Quality Badge
       const qEl = document.getElementById('np-quality');
@@ -284,6 +296,58 @@ export function initVolumeSliders() {
     if (!state.maPlayerId) return;
     await setMaVolume(state.maPlayerId, vol);
   });
+
+  document.getElementById('snap-vol-slider').addEventListener('input', async function () {
+    const vol = parseInt(this.value, 10);
+    document.getElementById('snap-vol-val').textContent = vol + '%';
+    if (!state.snapClientId) return;
+    await setSnapcastClientVolume(state.snapClientId, vol);
+  });
+}
+
+/** Toggle favorite for current track. */
+export async function toggleFavorite() {
+  if (!state.currentTrackUri) return;
+  const btn = document.getElementById('btn-favorite');
+  btn.classList.toggle('active');
+  await maFavorite(state.currentTrackUri);
+}
+
+/** Start a sleep timer. */
+export function startSleepTimer(minutes) {
+  cancelSleepTimer();
+  if (!minutes || minutes <= 0) return;
+  state.sleepTimerEnd = Date.now() + minutes * 60000;
+  state.sleepTimerId = setTimeout(() => {
+    snapControl('pause');
+    state.sleepTimerId = null;
+    state.sleepTimerEnd = 0;
+    updateSleepTimerDisplay();
+  }, minutes * 60000);
+  updateSleepTimerDisplay();
+}
+
+/** Cancel the sleep timer. */
+export function cancelSleepTimer() {
+  if (state.sleepTimerId) {
+    clearTimeout(state.sleepTimerId);
+    state.sleepTimerId = null;
+  }
+  state.sleepTimerEnd = 0;
+  updateSleepTimerDisplay();
+}
+
+/** Update sleep timer display. */
+export function updateSleepTimerDisplay() {
+  const el = document.getElementById('sleep-timer-status');
+  if (!el) return;
+  if (state.sleepTimerEnd > 0) {
+    const remaining = Math.max(0, Math.ceil((state.sleepTimerEnd - Date.now()) / 60000));
+    el.textContent = remaining + ' min';
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 /** Initialize seek bar (click + drag). */

@@ -166,3 +166,69 @@ export function maQueueAction(body) {
 export function serviceAction(action) {
   return fetch(`/api/service/${action}`, { method: 'POST' });
 }
+
+
+// --- New features ---
+
+/** Add track URI to MA favorites. */
+export function maFavorite(uri) {
+  return fetch('/api/ma/favorite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uri }),
+  }).then(r => r.json());
+}
+
+/** Fetch recently played items. */
+export function fetchRecentlyPlayed(limit = 20) {
+  return fetch(`/api/ma/recent?limit=${limit}`).then(r => r.json());
+}
+
+/** Search MA library. */
+export function maSearch(query, types = 'track,album,playlist', limit = 20) {
+  return fetch(`/api/ma/search?q=${encodeURIComponent(query)}&types=${types}&limit=${limit}`).then(r => r.json());
+}
+
+/** Play a media URI on a queue. */
+export function maPlayMedia(uri, queueId, option = 'play') {
+  return fetch('/api/ma/play', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uri, queue_id: queueId, option }),
+  }).then(r => r.json());
+}
+
+/** Fetch MA playlists. */
+export function fetchPlaylists() {
+  return fetch('/api/ma/playlists').then(r => r.json());
+}
+
+/** Set Snapcast client volume. */
+export function setSnapcastClientVolume(clientId, volume, muted = false) {
+  return fetch('/api/snapcast/client/volume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, volume, muted }),
+  }).then(r => r.json());
+}
+
+/** Set Snapcast client latency. */
+export function setSnapcastClientLatency(clientId, latency) {
+  return fetch('/api/snapcast/client/latency', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, latency }),
+  }).then(r => r.json());
+}
+
+
+/** Fetch album tracks. */
+export function fetchAlbumTracks(itemId, provider = 'library') {
+  return fetch(`/api/ma/album/tracks?item_id=${encodeURIComponent(itemId)}&provider=${encodeURIComponent(provider)}`).then(r => r.json());
+}
+
+
+/** Fetch playlist tracks. */
+export function fetchPlaylistTracks(itemId, provider = 'builtin') {
+  return fetch(`/api/ma/playlist/tracks?item_id=${encodeURIComponent(itemId)}&provider=${encodeURIComponent(provider)}`).then(r => r.json());
+}

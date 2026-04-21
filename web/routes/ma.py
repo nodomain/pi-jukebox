@@ -244,9 +244,14 @@ def _fetch_active_queue():
         queues = json.loads(raw)
         if isinstance(queues, dict):
             queues = queues.get("result", [])
+        # Prefer playing queue, fall back to first available
+        fallback = None
         for candidate in queues:
             if candidate.get("state") == "playing":
                 return candidate
+            if fallback is None:
+                fallback = candidate
+        return fallback or {}
     except (json.JSONDecodeError, TypeError):
         pass
     return {}
@@ -390,6 +395,7 @@ def ma_queue():
             "elapsed_time_last_updated": active_q.get("elapsed_time_last_updated", 0),
             "duration": current_item.get("duration", 0),
             "name": current_item.get("name", ""),
+            "uri": media_item.get("uri", ""),
             "server_time": time.time(),
             "next_track": next_item.get("name", ""),
             "next_duration": next_item.get("duration", 0),
@@ -436,6 +442,7 @@ def ma_queue_items():
             "duration": item.get("duration", 0),
             "sort_index": item.get("sort_index", 0),
             "artist": artist_name,
+            "uri": media_item.get("uri", ""),
         })
     return jsonify({"items": items})
 
@@ -493,7 +500,7 @@ def ma_imageproxy():
     proxy_url = (
         f"http://{SNAPCAST_SERVER}:8095/imageproxy"
         f"?path={urllib.request.quote(url, safe='')}"
-        f"&size=200&fmt=jpeg"
+        f"&size=512&fmt=jpeg"
     )
     try:
         req = urllib.request.Request(proxy_url)
@@ -506,3 +513,225 @@ def ma_imageproxy():
             )
     except (OSError, ValueError):
         return "", 502
+
+
+# --- Favorites ---
+
+
+@ma_bp.route("/api/ma/favorite", methods=["POST"])
+def ma_favorite():
+    """Add or remove a track from MA favorites."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    uri = (request.json or {}).get("uri", "")
+    if not uri:
+        return jsonify({"error": "Missing uri"}), 400
+    result = ma_rpc("music/favorites/add_item", {"item": uri})
+    return jsonify({"result": result or "ok"})
+
+
+# --- Recently Played ---
+
+
+@ma_bp.route("/api/ma/recent")
+def ma_recent():
+    """Get recently played items from MA."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    limit = int(request.args.get("limit", "20"))
+    data = ma_rpc("music/recently_played_items", {
+        "limit": limit, "media_types": ["track"],
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    result = data.get("result", data) if isinstance(data, dict) else data
+    items = []
+    for item in (result if isinstance(result, list) else []):
+        media_item = item if "name" in item else item.get("media_item", item)
+        artists = media_item.get("artists") or []
+        artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+        images = (media_item.get("metadata") or {}).get("images") or []
+        thumb = ""
+        for img in images:
+            if img.get("type") == "thumb" and img.get("path"):
+                thumb = img["path"]
+                break
+        if not thumb and images:
+            thumb = images[0].get("path", "")
+        items.append({
+            "name": media_item.get("name", ""),
+            "artist": artist_name,
+            "uri": media_item.get("uri", ""),
+            "duration": media_item.get("duration", 0),
+            "image_url": thumb,
+        })
+    return jsonify({"items": items})
+
+
+# --- Search ---
+
+
+@ma_bp.route("/api/ma/search")
+def ma_search():
+    """Search MA library for tracks, albums, playlists."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Missing query"}), 400
+    media_types = request.args.get("types", "track,album,playlist").split(",")
+    limit = int(request.args.get("limit", "20"))
+    data = ma_rpc("music/search", {
+        "search_query": query,
+        "media_types": [t.strip() for t in media_types],
+        "limit": limit,
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    result = data.get("result", data) if isinstance(data, dict) else data
+    if not isinstance(result, dict):
+        return jsonify({"tracks": [], "albums": [], "playlists": []})
+
+    def _parse_items(items, kind):
+        out = []
+        for item in (items or []):
+            artists = item.get("artists") or []
+            artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+            images = (item.get("metadata") or {}).get("images") or []
+            thumb = ""
+            for img in images:
+                if img.get("path"):
+                    thumb = img["path"]
+                    break
+            out.append({
+                "name": item.get("name", ""),
+                "artist": artist_name,
+                "uri": item.get("uri", ""),
+                "duration": item.get("duration", 0),
+                "image_url": thumb,
+                "type": kind,
+            })
+        return out
+
+    return jsonify({
+        "tracks": _parse_items(result.get("tracks"), "track"),
+        "albums": _parse_items(result.get("albums"), "album"),
+        "playlists": _parse_items(result.get("playlists"), "playlist"),
+    })
+
+
+# --- Play media (enqueue URI) ---
+
+
+@ma_bp.route("/api/ma/play", methods=["POST"])
+def ma_play():
+    """Play a media URI on the active queue."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    body = request.json or {}
+    uri = body.get("uri", "")
+    queue_id = body.get("queue_id", "")
+    option = body.get("option", "play")  # play, next, add, replace
+    if not uri or not queue_id:
+        return jsonify({"error": "Missing uri or queue_id"}), 400
+    result = ma_rpc("player_queues/play_media", {
+        "queue_id": queue_id,
+        "media": [uri],
+        "option": option,
+    })
+    return jsonify({"result": result or "ok"})
+
+
+# --- Playlists ---
+
+
+@ma_bp.route("/api/ma/playlists")
+def ma_playlists():
+    """List all playlists from MA library."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    data = ma_rpc("music/playlists", {
+        "in_library": True, "limit": 100, "offset": 0,
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    result = data.get("result", data) if isinstance(data, dict) else data
+    items = []
+    for item in (result if isinstance(result, list) else []):
+        items.append({
+            "name": item.get("name", ""),
+            "uri": item.get("uri", ""),
+            "item_id": item.get("item_id", ""),
+            "owner": item.get("owner", ""),
+            "is_editable": item.get("is_editable", False),
+        })
+    return jsonify({"items": items})
+
+
+
+# --- Album tracks ---
+
+
+@ma_bp.route("/api/ma/album/tracks")
+def ma_album_tracks():
+    """Get tracks for an album."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    item_id = request.args.get("item_id", "")
+    provider = request.args.get("provider", "library")
+    if not item_id:
+        return jsonify({"error": "Missing item_id"}), 400
+    data = ma_rpc("music/albums/album_tracks", {
+        "item_id": item_id,
+        "provider_instance_id_or_domain": provider,
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    result = data.get("result", data) if isinstance(data, dict) else data
+    items = []
+    for item in (result if isinstance(result, list) else []):
+        artists = item.get("artists") or []
+        artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+        items.append({
+            "name": item.get("name", ""),
+            "artist": artist_name,
+            "uri": item.get("uri", ""),
+            "duration": item.get("duration", 0),
+            "track_number": item.get("track_number", 0),
+        })
+    items.sort(key=lambda x: x["track_number"])
+    return jsonify({"items": items})
+
+
+
+# --- Playlist tracks ---
+
+
+@ma_bp.route("/api/ma/playlist/tracks")
+def ma_playlist_tracks():
+    """Get tracks for a playlist."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    item_id = request.args.get("item_id", "")
+    provider = request.args.get("provider", "builtin")
+    if not item_id:
+        return jsonify({"error": "Missing item_id"}), 400
+    data = ma_rpc("music/playlists/playlist_tracks", {
+        "item_id": item_id,
+        "provider_instance_id_or_domain": provider,
+    })
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    result = data.get("result", data) if isinstance(data, dict) else data
+    items = []
+    for i, item in enumerate(result if isinstance(result, list) else []):
+        artists = item.get("artists") or []
+        artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+        items.append({
+            "name": item.get("name", ""),
+            "artist": artist_name,
+            "uri": item.get("uri", ""),
+            "duration": item.get("duration", 0),
+            "track_number": i + 1,
+        })
+    return jsonify({"items": items})
