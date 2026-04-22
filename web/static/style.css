@@ -288,3 +288,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 
 /* Expand icon */
 .s-expand { vertical-align: middle; margin-right: 2px; }
+
+
+/* Provider icon */
+.s-provider { font-size: 0.85em; margin-right: 2px; vertical-align: middle; }

@@ -82,6 +82,19 @@ async function doSearch(query) {
   }
 }
 
+/** Map provider URI prefix to a display icon/emoji. */
+function providerIcon(uri) {
+  if (!uri) return '';
+  const p = uri.split('://')[0].toLowerCase();
+  if (p.startsWith('spotify')) return '<span class="s-provider" title="Spotify">🟢</span>';
+  if (p.startsWith('apple_music')) return '<span class="s-provider" title="Apple Music">🍎</span>';
+  if (p.startsWith('tidal')) return '<span class="s-provider" title="Tidal">🌊</span>';
+  if (p.startsWith('ytmusic') || p.startsWith('youtube')) return '<span class="s-provider" title="YouTube Music">▶️</span>';
+  if (p.startsWith('tunein') || p.startsWith('radio')) return '<span class="s-provider" title="Radio">📻</span>';
+  if (p === 'library') return '<span class="s-provider" title="Library">📚</span>';
+  return '';
+}
+
 /** Render a single search result item. */
 function renderSearchItem(item) {
   const thumb = item.image_url
@@ -92,12 +105,13 @@ function renderSearchItem(item) {
   const itemId = item.uri ? item.uri.split('/').pop() : '';
   const provider = item.uri ? item.uri.split('://')[0] : 'library';
   const expandIcon = isExpandable ? '<span class="s-expand material-symbols-outlined" style="font-size:18px;color:var(--dim)">expand_more</span>' : '';
+  const pIcon = providerIcon(item.uri);
 
   return `<div class="search-item${isExpandable ? ' expandable' : ''}"${isExpandable ? ` data-expand-type="${item.type}" data-item-id="${itemId}" data-provider="${provider}"` : ''}>
     ${thumb}
     <div class="s-info">
       <div class="s-name">${expandIcon}${item.name}</div>
-      <div class="s-artist">${item.artist || ''} <span class="s-type">${item.type}</span></div>
+      <div class="s-artist">${item.artist || ''} ${pIcon}<span class="s-type">${item.type}</span></div>
     </div>
     ${dur ? `<span style="color:var(--dim);font-size:0.75em">${dur}</span>` : ''}
     <span class="s-actions">
