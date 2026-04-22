@@ -261,6 +261,15 @@ while true; do
             wait_for_sink
             systemctl start snapclient
             WAS_CONNECTED=true
+        else
+            # Health check: restart snapclient if it lost its pulse connection
+            if systemctl is-active --quiet snapclient; then
+                if journalctl -u snapclient --no-pager -n 5 --since '30 sec ago' 2>/dev/null | grep -q 'Disconnecting from pulse'; then
+                    systemctl restart snapclient
+                fi
+            else
+                systemctl start snapclient
+            fi
         fi
     else
         if [ "\$WAS_CONNECTED" = true ]; then
