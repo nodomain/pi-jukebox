@@ -20,6 +20,9 @@ export const state = {
   currentTrackUri: '',
   // Snapcast client ID (for volume/latency control)
   snapClientId: '',
+  // AirPlay state (overrides MA/Snapcast when active)
+  airplayActive: false,
+  airplayTrackKey: '',
   // Sleep timer ID (setTimeout handle)
   sleepTimerId: null,
   sleepTimerEnd: 0,

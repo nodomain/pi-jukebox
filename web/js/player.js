@@ -8,6 +8,7 @@ import {
   fetchSnapcastStatus, snapcastControl,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
   setSnapcastClientVolume, maFavorite,
+  fetchAirplayStatus,
 } from './api.js';
 
 /** Format seconds as m:ss. */
@@ -66,7 +67,7 @@ export function handleSnapcastStatus(d) {
   }
 
   const np = d.now_playing;
-  if (np) {
+  if (np && !state.airplayActive) {
     document.getElementById('np-title').textContent = np.title || '—';
     const artist = Array.isArray(np.artist) ? np.artist.join(', ') : (np.artist || '').split(',').map(s => s.trim()).join(', ');
     document.getElementById('np-artist').textContent = artist;
@@ -83,7 +84,7 @@ export function handleSnapcastStatus(d) {
     } else {
       art.style.display = 'none';
     }
-  } else {
+  } else if (!np && !state.airplayActive) {
     document.getElementById('np-title').textContent = 'Nothing playing';
     document.getElementById('np-artist').textContent = '';
     document.getElementById('np-album').textContent = '';
@@ -190,6 +191,8 @@ export async function pollMaQueue() {
   try {
     const d = await fetchMaQueue();
     if (d.queue_id) state.currentQueueId = d.queue_id;
+    // If AirPlay is active, don't touch the player UI — pollAirplay owns it
+    if (state.airplayActive) return;
     if (d.duration > 0) {
       state.npElapsed = d.elapsed_time || 0;
       state.npElapsedAt = d.server_time || (Date.now() / 1000);
@@ -400,4 +403,48 @@ export function initSwipeGestures() {
     if (dx > MIN_SWIPE) snapControl('previous');
     else if (dx < -MIN_SWIPE) snapControl('next');
   }, { passive: true });
+}
+
+
+/** Poll AirPlay status and update the now-playing display if active. */
+export async function pollAirplay() {
+  try {
+    const d = await fetchAirplayStatus();
+    const card = document.getElementById('player-card');
+    state.airplayActive = !!d.active;
+    if (d.active) {
+      // Override Now Playing with AirPlay info
+      document.getElementById('np-title').textContent = d.title || 'AirPlay';
+      document.getElementById('np-artist').textContent = d.artist || '';
+      document.getElementById('np-album').textContent = d.album || '';
+      const art = document.getElementById('np-art');
+      if (d.has_cover) {
+        // Only reload cover if the track changed
+        const key = d.title + '|' + d.artist;
+        if (key !== state.airplayTrackKey) {
+          state.airplayTrackKey = key;
+          art.src = '/api/airplay/cover?t=' + encodeURIComponent(key);
+        }
+        art.style.display = '';
+      }
+      // AirPlay badge indicator
+      const badge = document.getElementById('airplay-badge');
+      if (badge) badge.style.display = '';
+      card.classList.add('airplay-active');
+      // Hide things that don't apply to AirPlay
+      document.getElementById('btn-prev').style.visibility = 'hidden';
+      document.getElementById('btn-next').style.visibility = 'hidden';
+      document.getElementById('btn-playpause').style.visibility = 'hidden';
+    } else {
+      state.airplayTrackKey = '';
+      const badge = document.getElementById('airplay-badge');
+      if (badge) badge.style.display = 'none';
+      card.classList.remove('airplay-active');
+      document.getElementById('btn-prev').style.visibility = '';
+      document.getElementById('btn-next').style.visibility = '';
+      document.getElementById('btn-playpause').style.visibility = '';
+    }
+  } catch (e) {
+    // Ignore
+  }
 }

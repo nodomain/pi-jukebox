@@ -292,3 +292,19 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 
 /* Provider icon */
 .s-provider { font-size: 0.85em; margin-right: 2px; vertical-align: middle; }
+
+
+/* AirPlay indicator */
+.airplay-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  vertical-align: middle;
+}
