@@ -18,30 +18,37 @@ Designed for battery/portable use — safe to pull power at any time.
 ## Architecture
 
 ```
-Music Assistant (Home Assistant Add-on)
-    ↓ TCP stream (FLAC 48 kHz / 16 bit / Stereo)
-Snapcast Server
-    ↓ network
-Snapcast Client (this Pi)
-    ↓ PipeWire / PulseAudio
-Bluetooth A2DP (SBC-XQ)
-    ↓ wireless
-Bluetooth Speaker
+                ┌─ Music Assistant ─→ Snapcast Server ─┐
+iPhone                                                  ↓
+  ↓ AirPlay                                      Snapcast Client
+shairport-sync ─────────────────────────────→ PipeWire / PulseAudio
+                                                        ↓
+                                              Bluetooth A2DP (SBC-XQ)
+                                                        ↓
+                                                 Bluetooth Speaker
 ```
+
+Two audio sources share the same Bluetooth output. When AirPlay starts, Snapcast
+is paused automatically; when AirPlay ends, Snapcast resumes.
 
 ## Web Dashboard
 
 Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 
-- **Now Playing** — album art with blurred background, track info, progress bar, lyrics
-- **Playback Controls** — play/pause, skip, shuffle, repeat via Snapcast JSON-RPC
+- **Now Playing** — album art with blurred background, title/artist/album, progress bar, lyrics
+- **AirPlay Now Playing** — shows track info and cover art from the iPhone when AirPlay is active
+- **Playback Controls** — play/pause, skip, shuffle, repeat, favorite, sleep timer
 - **FFT Visualizer** — real-time audio visualization via cava
-- **Queue Browser** — reorder, delete, jump to track, clear
-- **Volume Control** — PipeWire default sink
-- **System Diagnostics** — CPU temp/freq, memory, WiFi signal, SD writes, throttle flags
+- **Queue Browser** — reorder, delete, jump to track, clear (auto-expands when tracks are queued)
+- **Music Search** — search MA library for tracks, albums, playlists with provider icons, expand albums/playlists to play individual tracks
+- **Recently Played** — quick access to recent tracks
+- **Playlists** — browse and play MA library playlists
+- **Three Volume Sliders** — Music Assistant, Snapcast client, PipeWire sink
+- **System Diagnostics** — CPU temp/freq, memory, WiFi signal, SD writes, throttle flags (collapsible)
 - **Live Charts** — Chart.js graphs for temp, CPU, WiFi, load, traffic, SD writes, Snapcast buffer jitter
 - **Bluetooth Management** — scan, connect, disconnect
 - **Service Controls** — restart snapclient, BT watchdog, reboot
+- **Theme Toggle** — dark/light mode
 
 ## Prerequisites
 
@@ -134,10 +141,34 @@ make ssh       — open SSH session
 │   ├── setup.sh              # Pi provisioning — idempotent (run on Pi as root)
 │   └── pair-bt.sh            # Bluetooth pairing (run on Pi as root)
 └── web/                      # Flask dashboard (deployed to /opt/jukebox/)
-    ├── app.py                # All API routes, SSE endpoints, MA WebSocket relay
+    ├── app.py                # Flask app factory, blueprint registration
+    ├── helpers.py            # Shared shell helpers (run, run_pw)
     ├── cava.conf             # cava config (48 bars, PipeWire input, ASCII output)
+    ├── package.json          # esbuild for bundling JS modules
+    ├── routes/               # Flask blueprints (one per concern)
+    │   ├── ma.py             # Music Assistant API + WebSocket relay
+    │   ├── snapcast.py       # Snapcast JSON-RPC + jitter log parser
+    │   ├── audio.py          # PipeWire volume control
+    │   ├── bluetooth.py      # BT scan/connect/disconnect
+    │   ├── system.py         # System stats, service actions
+    │   ├── fft.py            # cava FFT SSE stream
+    │   ├── events.py         # Unified SSE endpoint
+    │   └── airplay.py        # shairport-sync metadata reader
+    ├── js/                   # ES modules, bundled to static/app.js
+    │   ├── main.js           # Entry point
+    │   ├── state.js          # Shared state
+    │   ├── api.js            # Fetch wrappers
+    │   ├── player.js         # Now playing, controls, volume
+    │   ├── queue.js          # Queue browser
+    │   ├── browse.js         # Search, recently played, playlists
+    │   ├── charts.js         # Chart.js setup
+    │   ├── fft.js            # FFT visualizer
+    │   ├── system.js         # BT, services
+    │   ├── sse.js            # SSE connection
+    │   └── theme.js          # Dark/light theme
+    ├── static/               # Bundled app.js + CSS + icons
     └── templates/
-        └── index.html        # Single-page app — HTML, CSS, JS all inline
+        └── index.html        # Single-page app
 ```
 
 ## Music Assistant Settings
@@ -172,7 +203,7 @@ ssh <user>@<host> "bluetoothctl info <BT_MAC> | grep Connected"
 ssh <user>@<host> "bluetoothctl connect <BT_MAC> && sudo systemctl restart snapclient"
 ```
 
-The watchdog should auto-reconnect within 15 seconds.
+The watchdog should auto-reconnect within 5 seconds.
 </details>
 
 <details>
@@ -217,12 +248,39 @@ ssh <user>@<host> "cat /proc/diskstats | grep mmcblk0 | head -1; sleep 30; cat /
 </details>
 
 <details>
+<summary>AirPlay: iPhone doesn't see "Jukebox"</summary>
+
+Check mDNS is working and shairport-sync is running:
+
+```bash
+ssh <user>@<host> "avahi-browse -at | grep -i jukebox"
+ssh <user>@<host> "sudo systemctl status shairport-sync"
+```
+
+The Pi and iPhone must be on the same network (mDNS doesn't cross subnets).
+</details>
+
+<details>
+<summary>AirPlay: no audio or metadata</summary>
+
+Check port 5000 is owned by shairport-sync (not Flask):
+
+```bash
+ssh <user>@<host> "sudo ss -tlnp | grep :5000"
+```
+
+Should show `shairport-sync`. If Flask took the port, it fights with AirPlay for
+the RTSP listener. The Flask dashboard must run on port 8080.
+</details>
+
+<details>
 <summary>Service logs</summary>
 
 ```bash
 ssh <user>@<host> "journalctl -u snapclient --no-pager -n 20"
 ssh <user>@<host> "journalctl -u bt-autoconnect --no-pager -n 20"
 ssh <user>@<host> "journalctl -u jukebox-web --no-pager -n 20"
+ssh <user>@<host> "journalctl -u shairport-sync --no-pager -n 20"
 ```
 </details>
 
