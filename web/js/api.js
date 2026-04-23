@@ -232,3 +232,9 @@ export function fetchAlbumTracks(itemId, provider = 'library') {
 export function fetchPlaylistTracks(itemId, provider = 'builtin') {
   return fetch(`/api/ma/playlist/tracks?item_id=${encodeURIComponent(itemId)}&provider=${encodeURIComponent(provider)}`).then(r => r.json());
 }
+
+
+/** Fetch AirPlay status. */
+export function fetchAirplayStatus() {
+  return fetch('/api/airplay/status').then(r => r.json());
+}

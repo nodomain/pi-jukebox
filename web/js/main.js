@@ -10,6 +10,7 @@ import {
   initVolumeSliders, initSeekBar, initSwipeGestures,
   snapControl, togglePlayPause,
   toggleFavorite, startSleepTimer, cancelSleepTimer, updateSleepTimerDisplay,
+  pollAirplay,
 } from './player.js';
 import { toggleQueue, clearQueue, toggleShuffle, toggleRepeat, initQueueEvents } from './queue.js';
 import { connectSSE } from './sse.js';
@@ -73,6 +74,7 @@ function init() {
   pollMaVolume();
   pollMaQueue();
   pollJitter();
+  pollAirplay();
 
   // Load browse sections
   loadRecent();
@@ -82,6 +84,7 @@ function init() {
   setInterval(pollMaVolume, 10000);
   setInterval(pollMaQueue, 10000);
   setInterval(pollJitter, 10000);
+  setInterval(pollAirplay, 3000);
 
   // Progress bar + sleep timer display interpolation
   setInterval(() => {
