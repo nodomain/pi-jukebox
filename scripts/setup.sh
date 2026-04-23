@@ -310,7 +310,7 @@ echo "==> AirPlay (shairport-sync)"
 cat > /usr/local/bin/airplay-begin << 'AIRBEGIN'
 #!/usr/bin/env bash
 # Mark AirPlay as active so the BT watchdog leaves snapclient alone
-touch /run/jukebox-airplay-active
+sudo touch /run/jukebox-airplay-active 2>/dev/null || true
 # Stop snapclient so AirPlay has exclusive access to the BT sink
 sudo systemctl stop snapclient 2>/dev/null || true
 AIRBEGIN
@@ -320,7 +320,7 @@ chmod +x /usr/local/bin/airplay-begin
 cat > /usr/local/bin/airplay-end << 'AIREND'
 #!/usr/bin/env bash
 # Clear the AirPlay lock
-rm -f /run/jukebox-airplay-active
+sudo rm -f /run/jukebox-airplay-active 2>/dev/null || true
 # Give pulse a moment to release the sink, then restart snapclient if BT is up
 sleep 1
 if bluetoothctl info $(cat /etc/jukebox-bt-mac 2>/dev/null || echo '00:00:00:00:00:00') 2>/dev/null | grep -q 'Connected: yes'; then
@@ -331,6 +331,12 @@ chmod +x /usr/local/bin/airplay-end
 
 # Stash BT MAC for airplay-end to read (avoid shell quoting issues)
 echo "${BT_MAC}" > /etc/jukebox-bt-mac
+
+# Metadata pipe for AirPlay now-playing info
+if [[ ! -p /tmp/shairport-sync-metadata ]]; then
+    rm -f /tmp/shairport-sync-metadata
+    mkfifo -m 0666 /tmp/shairport-sync-metadata
+fi
 
 ensure_file /etc/shairport-sync.conf \
 "general = {
@@ -351,6 +357,12 @@ sessioncontrol = {
 
 pa = {
     application_name = \"Shairport Sync\";
+};
+
+metadata = {
+    enabled = \"yes\";
+    include_cover_art = \"yes\";
+    pipe_name = \"/tmp/shairport-sync-metadata\";
 };" || true
 
 # Run shairport-sync as the jukebox user so it can reach PulseAudio
@@ -367,9 +379,9 @@ ProtectHome=false
 PrivateTmp=false
 PrivateUsers=false" || true
 
-# Allow the jukebox user to start/stop snapclient without password (for AirPlay hooks)
+# Allow the jukebox user to manage snapclient and the airplay lock without password
 ensure_file /etc/sudoers.d/${JUKEBOX_USER}-snapclient \
-"${JUKEBOX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start snapclient, /bin/systemctl stop snapclient, /bin/systemctl restart snapclient" || true
+"${JUKEBOX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start snapclient, /bin/systemctl stop snapclient, /bin/systemctl restart snapclient, /bin/touch /run/jukebox-airplay-active, /bin/rm /run/jukebox-airplay-active, /bin/rm -f /run/jukebox-airplay-active" || true
 
 # --- Web dashboard ---
 echo "==> Web dashboard"
