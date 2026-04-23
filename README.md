@@ -31,7 +31,7 @@ Bluetooth Speaker
 
 ## Web Dashboard
 
-Available at `http://<hostname>:5000` after setup. Mobile-first, dark theme.
+Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 
 - **Now Playing** — album art with blurred background, track info, progress bar, lyrics
 - **Playback Controls** — play/pause, skip, shuffle, repeat via Snapcast JSON-RPC
@@ -116,7 +116,7 @@ make ssh       — open SSH session
 | **WirePlumber** | Seat monitoring disabled (headless fix), SBC-XQ codec preferred |
 | **bt-autoconnect.service** | Watchdog — reconnects BT every 5 s, switches to SBC-XQ, pauses on AirPlay |
 | **wifi-roam.service** | Rescans WiFi every 30 s if signal < -70 dBm |
-| **jukebox-web.service** | Flask dashboard on port 5000 |
+| **jukebox-web.service** | Flask dashboard on port 8080 |
 | **shairport-sync** | AirPlay receiver — pauses Snapcast while iPhone streams |
 | **avahi-daemon** | mDNS for AirPlay discovery |
 | **cava** | FFT audio visualizer for the dashboard |

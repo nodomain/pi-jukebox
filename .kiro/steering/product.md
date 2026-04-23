@@ -15,7 +15,7 @@ Music Assistant → Snapcast Server → (network) → Snapcast Client (Pi) → P
 
 ## Web Dashboard
 
-Flask app served on port 5000 providing:
+Flask app served on port 8080 providing:
 
 - Now Playing with album art, playback controls, progress bar, lyrics
 - FFT audio visualizer via cava

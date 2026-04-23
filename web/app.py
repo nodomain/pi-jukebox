@@ -20,6 +20,7 @@ from routes.audio import audio_bp
 from routes.system import system_bp
 from routes.fft import fft_bp
 from routes.events import events_bp, start_poll_thread
+from routes.airplay import airplay_bp, start_airplay_thread
 
 app = Flask(__name__)
 
@@ -32,6 +33,7 @@ app.register_blueprint(audio_bp)
 app.register_blueprint(system_bp)
 app.register_blueprint(fft_bp)
 app.register_blueprint(events_bp)
+app.register_blueprint(airplay_bp)
 
 
 @app.route("/")
@@ -43,7 +45,8 @@ def index():
 # Start background threads
 start_ws_thread(app)
 start_poll_thread()
+start_airplay_thread()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8080)

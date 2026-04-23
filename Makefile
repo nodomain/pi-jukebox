@@ -30,7 +30,7 @@ deploy: build ## Build + deploy web dashboard to the Pi
 		sudo systemctl restart jukebox-web && \
 		rm -rf $(TMP_DIR)"
 	@ssh $(HOST) "sudo systemctl is-active jukebox-web"
-	@echo "==> Done — http://$(JUKEBOX_HOST):5000"
+	@echo "==> Done — http://$(JUKEBOX_HOST):8080"
 
 setup: ## Copy scripts + .env to Pi and run setup.sh
 	@echo "==> Uploading setup files to $(HOST)"
