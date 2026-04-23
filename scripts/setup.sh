@@ -73,6 +73,7 @@ fi
 echo "==> Packages"
 PACKAGES=(snapclient bluez pipewire pipewire-pulse wireplumber
     libspa-0.2-bluetooth pulseaudio-utils rfkill cava
+    shairport-sync avahi-daemon avahi-utils
     python3-flask python3-websocket)
 MISSING=()
 for pkg in "${PACKAGES[@]}"; do
@@ -255,6 +256,11 @@ else
 fi
 while true; do
     if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
+        # Don't touch snapclient if AirPlay is active
+        if [ -f /run/jukebox-airplay-active ]; then
+            sleep 5
+            continue
+        fi
         if [ "\$WAS_CONNECTED" = false ]; then
             sleep 2
             switch_codec
@@ -296,6 +302,74 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target" || true
+
+# --- AirPlay (shairport-sync) ---
+echo "==> AirPlay (shairport-sync)"
+
+# Hook: pause snapclient when AirPlay playback begins
+cat > /usr/local/bin/airplay-begin << 'AIRBEGIN'
+#!/usr/bin/env bash
+# Mark AirPlay as active so the BT watchdog leaves snapclient alone
+touch /run/jukebox-airplay-active
+# Stop snapclient so AirPlay has exclusive access to the BT sink
+sudo systemctl stop snapclient 2>/dev/null || true
+AIRBEGIN
+chmod +x /usr/local/bin/airplay-begin
+
+# Hook: resume snapclient when AirPlay playback ends
+cat > /usr/local/bin/airplay-end << 'AIREND'
+#!/usr/bin/env bash
+# Clear the AirPlay lock
+rm -f /run/jukebox-airplay-active
+# Give pulse a moment to release the sink, then restart snapclient if BT is up
+sleep 1
+if bluetoothctl info $(cat /etc/jukebox-bt-mac 2>/dev/null || echo '00:00:00:00:00:00') 2>/dev/null | grep -q 'Connected: yes'; then
+    sudo systemctl start snapclient
+fi
+AIREND
+chmod +x /usr/local/bin/airplay-end
+
+# Stash BT MAC for airplay-end to read (avoid shell quoting issues)
+echo "${BT_MAC}" > /etc/jukebox-bt-mac
+
+ensure_file /etc/shairport-sync.conf \
+"general = {
+    name = \"Jukebox\";
+    interpolation = \"basic\";
+    output_backend = \"pa\";
+    mdns_backend = \"avahi\";
+    dbus_service_bus = \"session\";
+    mpris_service_bus = \"session\";
+};
+
+sessioncontrol = {
+    run_this_before_play_begins = \"/usr/local/bin/airplay-begin\";
+    run_this_after_play_ends = \"/usr/local/bin/airplay-end\";
+    wait_for_completion = \"yes\";
+    session_timeout = 20;
+};
+
+pa = {
+    application_name = \"Shairport Sync\";
+};" || true
+
+# Run shairport-sync as the jukebox user so it can reach PulseAudio
+mkdir -p /etc/systemd/system/shairport-sync.service.d
+ensure_file /etc/systemd/system/shairport-sync.service.d/override.conf \
+"[Service]
+User=${JUKEBOX_USER}
+Group=${JUKEBOX_USER}
+Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
+Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse
+# Disable systemd sandboxing so AirPlay hooks can call systemctl
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=false
+PrivateUsers=false" || true
+
+# Allow the jukebox user to start/stop snapclient without password (for AirPlay hooks)
+ensure_file /etc/sudoers.d/${JUKEBOX_USER}-snapclient \
+"${JUKEBOX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start snapclient, /bin/systemctl stop snapclient, /bin/systemctl restart snapclient" || true
 
 # --- Web dashboard ---
 echo "==> Web dashboard"
@@ -339,7 +413,7 @@ WantedBy=multi-user.target" || true
 # --- Enable services ---
 echo "==> Enabling services"
 systemctl daemon-reload
-SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web)
+SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon)
 for svc in "${SERVICES[@]}"; do
     if systemctl is-enabled "$svc" &>/dev/null; then
         echo "  $svc already enabled"

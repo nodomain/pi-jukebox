@@ -7,6 +7,7 @@ Designed for battery/portable use — safe to pull power at any time.
 ## Features
 
 - **Snapcast → Bluetooth** — streams from Music Assistant via PipeWire to any A2DP speaker
+- **AirPlay** — `shairport-sync` receiver, shows up as "Jukebox" on your iPhone
 - **SBC-XQ codec** — better audio quality over Bluetooth (auto-negotiated)
 - **Auto-reconnect** — watchdog reconnects to speaker on boot or power-cycle
 - **Zero SD card writes** — tmpfs mounts + volatile journal during normal operation
@@ -113,9 +114,11 @@ make ssh       — open SSH session
 | **PipeWire + WirePlumber** | Bluetooth A2DP audio backend |
 | **BlueZ** | `AutoEnable=true`, speaker paired and trusted |
 | **WirePlumber** | Seat monitoring disabled (headless fix), SBC-XQ codec preferred |
-| **bt-autoconnect.service** | Watchdog — reconnects BT every 15 s, switches to SBC-XQ |
+| **bt-autoconnect.service** | Watchdog — reconnects BT every 5 s, switches to SBC-XQ, pauses on AirPlay |
 | **wifi-roam.service** | Rescans WiFi every 30 s if signal < -70 dBm |
 | **jukebox-web.service** | Flask dashboard on port 5000 |
+| **shairport-sync** | AirPlay receiver — pauses Snapcast while iPhone streams |
+| **avahi-daemon** | mDNS for AirPlay discovery |
 | **cava** | FFT audio visualizer for the dashboard |
 | **SD card protection** | tmpfs on `/var/log` + `/var/tmp`, volatile journal, `commit=120s` |
 | **WiFi power save** | Disabled — prevents latency spikes |
