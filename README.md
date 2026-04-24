@@ -42,6 +42,7 @@ Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 
 - **Now Playing** — album art with blurred background, title/artist/album, progress bar, lyrics
 - **AirPlay Now Playing** — shows track info and cover art from the iPhone when AirPlay is active
+- **Spotify Now Playing** — shows track info and cover art (via oEmbed) when Spotify Connect is active
 - **Playback Controls** — play/pause, skip, shuffle, repeat, favorite, sleep timer
 - **FFT Visualizer** — real-time audio visualization via cava
 - **Queue Browser** — reorder, delete, jump to track, clear (auto-expands when tracks are queued)
