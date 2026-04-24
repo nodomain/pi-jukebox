@@ -257,7 +257,7 @@ fi
 while true; do
     if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
         # Don't touch snapclient if AirPlay or Spotify is active
-        if [ -f /run/jukebox-airplay-active ] || [ -f /run/jukebox-spotify-active ]; then
+        if [ -f /run/jukebox-airplay-active ] || [ -f /run/jukebox-spotify-meta/active ]; then
             sleep 5
             continue
         fi
@@ -395,7 +395,7 @@ fi
 # Hook: pause snapclient when Spotify playback begins
 cat > /usr/local/bin/spotify-begin << 'SPBEGIN'
 #!/usr/bin/env bash
-sudo touch /run/jukebox-spotify-active 2>/dev/null || true
+touch /run/jukebox-spotify-meta/active 2>/dev/null || true
 sudo systemctl stop snapclient 2>/dev/null || true
 SPBEGIN
 chmod +x /usr/local/bin/spotify-begin
@@ -403,10 +403,10 @@ chmod +x /usr/local/bin/spotify-begin
 # Hook: resume snapclient when Spotify playback ends
 cat > /usr/local/bin/spotify-end << 'SPEND'
 #!/usr/bin/env bash
-sudo rm -f /run/jukebox-spotify-active 2>/dev/null || true
+rm -f /run/jukebox-spotify-meta/active 2>/dev/null || true
 sleep 1
 if bluetoothctl info $(cat /etc/jukebox-bt-mac 2>/dev/null || echo '00:00:00:00:00:00') 2>/dev/null | grep -q 'Connected: yes'; then
-    sudo systemctl start snapclient
+    sudo systemctl start snapclient 2>/dev/null || true
 fi
 SPEND
 chmod +x /usr/local/bin/spotify-end
@@ -416,8 +416,8 @@ cat > /usr/local/bin/spotify-event << 'SPEVENT'
 #!/usr/bin/env bash
 # Called by librespot via --onevent with env vars:
 #   PLAYER_EVENT = session_connected | session_disconnected |
-#                  playing | paused | stopped | changed | ...
-#   TRACK_ID, ARTIST, TITLE, ALBUM, DURATION_MS, COVER_URL (if available)
+#                  playing | paused | stopped | track_changed | ...
+#   TRACK_ID, ARTISTS, ALBUM, URI, ITEM_TYPE (on track_changed)
 EVENT_DIR="/run/jukebox-spotify-meta"
 mkdir -p "$EVENT_DIR" 2>/dev/null || true
 case "$PLAYER_EVENT" in
@@ -428,13 +428,17 @@ case "$PLAYER_EVENT" in
         /usr/local/bin/spotify-end || true
         rm -f "$EVENT_DIR"/*
         ;;
+    track_changed)
+        # Write metadata from track_changed event
+        [ -n "$ARTISTS" ] && printf '%s' "$ARTISTS" > "$EVENT_DIR/artist"
+        [ -n "$ALBUM" ]   && printf '%s' "$ALBUM"   > "$EVENT_DIR/album"
+        [ -n "$TRACK_ID" ] && printf '%s' "$TRACK_ID" > "$EVENT_DIR/track_id"
+        [ -n "$URI" ]      && printf '%s' "$URI"      > "$EVENT_DIR/uri"
+        # Track name: extract from journal (librespot logs "Loading <Name>")
+        TRACK_NAME=$(journalctl -u raspotify --no-pager -n 5 --since '5 sec ago' 2>/dev/null | grep -oP 'Loading <\K[^>]+' | tail -1)
+        [ -n "$TRACK_NAME" ] && printf '%s' "$TRACK_NAME" > "$EVENT_DIR/title"
+        ;;
 esac
-# Always write metadata if available
-[ -n "$TITLE" ]  && printf '%s' "$TITLE"  > "$EVENT_DIR/title"
-[ -n "$ARTIST" ] && printf '%s' "$ARTIST" > "$EVENT_DIR/artist"
-[ -n "$ALBUM" ]  && printf '%s' "$ALBUM"  > "$EVENT_DIR/album"
-[ -n "$TRACK_ID" ] && printf '%s' "$TRACK_ID" > "$EVENT_DIR/track_id"
-[ -n "$DURATION_MS" ] && printf '%s' "$DURATION_MS" > "$EVENT_DIR/duration_ms"
 exit 0
 SPEVENT
 chmod +x /usr/local/bin/spotify-event
@@ -454,8 +458,14 @@ User=${JUKEBOX_USER}
 Group=${JUKEBOX_USER}
 Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
 Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse
+# Disable sandboxing so event hooks can call sudo systemctl
 ProtectHome=false
-PrivateTmp=false" || true
+ProtectSystem=false
+PrivateTmp=false
+PrivateUsers=false
+NoNewPrivileges=false
+RestrictSUIDSGID=false
+CapabilityBoundingSet=~" || true
 
 # Pre-create metadata directory writable by the jukebox user
 mkdir -p /run/jukebox-spotify-meta

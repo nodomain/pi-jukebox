@@ -425,13 +425,21 @@ export async function pollAirplay() {
       document.getElementById('np-artist').textContent = ext.artist || '';
       document.getElementById('np-album').textContent = ext.album || '';
 
-      // Cover (AirPlay only — Spotify doesn't provide cover via librespot events)
+      // Cover
       const art = document.getElementById('np-art');
-      if (ext.has_cover) {
+      if (ext.has_cover || ext.source === 'Spotify') {
         const key = ext.title + '|' + ext.artist;
         if (key !== state.airplayTrackKey) {
           state.airplayTrackKey = key;
-          art.src = '/api/airplay/cover?t=' + encodeURIComponent(key);
+          if (ext.source === 'Spotify') {
+            art.src = '/api/spotify/cover?t=' + encodeURIComponent(key);
+            document.getElementById('player-bg').style.backgroundImage =
+              `url('/api/spotify/cover?t=${encodeURIComponent(key)}')`;
+          } else {
+            art.src = '/api/airplay/cover?t=' + encodeURIComponent(key);
+            document.getElementById('player-bg').style.backgroundImage =
+              `url('/api/airplay/cover?t=${encodeURIComponent(key)}')`;
+          }
         }
         art.style.display = '';
       } else {

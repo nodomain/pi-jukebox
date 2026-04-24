@@ -23,12 +23,14 @@ Endpoint:
 """
 
 import base64
+import json
 import logging
 import os
 import re
 import sys
 import threading
 import time
+import urllib.request
 
 from flask import Blueprint, Response, jsonify  # pylint: disable=import-error
 
@@ -214,7 +216,7 @@ def airplay_cover():
 # --- Spotify Connect metadata (from /run/jukebox-spotify-meta/) ---
 
 SPOTIFY_META_DIR = "/run/jukebox-spotify-meta"
-SPOTIFY_LOCK = "/run/jukebox-spotify-active"
+SPOTIFY_LOCK = "/run/jukebox-spotify-meta/active"
 
 
 def _read_meta_file(name):
@@ -242,3 +244,26 @@ def spotify_status():
         "album": _read_meta_file("album"),
         "track_id": _read_meta_file("track_id"),
     })
+
+
+@airplay_bp.route("/api/spotify/cover")
+def spotify_cover():
+    """Proxy Spotify cover art via oEmbed (no API key needed)."""
+    track_id = _read_meta_file("track_id")
+    if not track_id:
+        return "", 404
+    try:
+        url = f"https://open.spotify.com/oembed?url=https://open.spotify.com/track/{track_id}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            thumb = data.get("thumbnail_url", "")
+        if not thumb:
+            return "", 404
+        # Fetch the actual image
+        with urllib.request.urlopen(thumb, timeout=5) as img_resp:
+            img_data = img_resp.read()
+            return Response(img_data, mimetype="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"})
+    except (OSError, ValueError, json.JSONDecodeError):
+        return "", 502
