@@ -8,6 +8,7 @@ Designed for battery/portable use — safe to pull power at any time.
 
 - **Snapcast → Bluetooth** — streams from Music Assistant via PipeWire to any A2DP speaker
 - **AirPlay** — `shairport-sync` receiver, shows up as "Jukebox" on your iPhone
+- **Spotify Connect** — `raspotify` (librespot) receiver, shows up as "Jukebox" in Spotify (Premium required)
 - **SBC-XQ codec** — better audio quality over Bluetooth (auto-negotiated)
 - **Auto-reconnect** — watchdog reconnects to speaker on boot or power-cycle
 - **Zero SD card writes** — tmpfs mounts + volatile journal during normal operation
@@ -22,14 +23,18 @@ Designed for battery/portable use — safe to pull power at any time.
 iPhone                                                  ↓
   ↓ AirPlay                                      Snapcast Client
 shairport-sync ─────────────────────────────→ PipeWire / PulseAudio
+                                                        ↑
+Spotify App                                             │
+  ↓ Spotify Connect                                     │
+raspotify (librespot) ─────────────────────────────────┘
                                                         ↓
                                               Bluetooth A2DP (SBC-XQ)
                                                         ↓
                                                  Bluetooth Speaker
 ```
 
-Two audio sources share the same Bluetooth output. When AirPlay starts, Snapcast
-is paused automatically; when AirPlay ends, Snapcast resumes.
+Three audio sources share the same Bluetooth output. When AirPlay or Spotify
+starts, Snapcast is paused automatically; when they end, Snapcast resumes.
 
 ## Web Dashboard
 
@@ -125,7 +130,8 @@ make ssh       — open SSH session
 | **wifi-roam.service** | Rescans WiFi every 30 s if signal < -70 dBm |
 | **jukebox-web.service** | Flask dashboard on port 8080 |
 | **shairport-sync** | AirPlay receiver — pauses Snapcast while iPhone streams |
-| **avahi-daemon** | mDNS for AirPlay discovery |
+| **raspotify** | Spotify Connect receiver — pauses Snapcast while Spotify streams |
+| **avahi-daemon** | mDNS for AirPlay/Spotify discovery |
 | **cava** | FFT audio visualizer for the dashboard |
 | **SD card protection** | tmpfs on `/var/log` + `/var/tmp`, volatile journal, `commit=120s` |
 | **WiFi power save** | Disabled — prevents latency spikes |

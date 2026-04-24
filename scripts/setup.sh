@@ -256,8 +256,8 @@ else
 fi
 while true; do
     if bluetoothctl info "\$MAC" 2>/dev/null | grep -q 'Connected: yes'; then
-        # Don't touch snapclient if AirPlay is active
-        if [ -f /run/jukebox-airplay-active ]; then
+        # Don't touch snapclient if AirPlay or Spotify is active
+        if [ -f /run/jukebox-airplay-active ] || [ -f /run/jukebox-spotify-active ]; then
             sleep 5
             continue
         fi
@@ -381,7 +381,78 @@ PrivateUsers=false" || true
 
 # Allow the jukebox user to manage snapclient and the airplay lock without password
 ensure_file /etc/sudoers.d/${JUKEBOX_USER}-snapclient \
-"${JUKEBOX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start snapclient, /bin/systemctl stop snapclient, /bin/systemctl restart snapclient, /bin/touch /run/jukebox-airplay-active, /bin/rm /run/jukebox-airplay-active, /bin/rm -f /run/jukebox-airplay-active" || true
+"${JUKEBOX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start snapclient, /bin/systemctl stop snapclient, /bin/systemctl restart snapclient, /bin/touch /run/jukebox-airplay-active, /bin/rm /run/jukebox-airplay-active, /bin/rm -f /run/jukebox-airplay-active, /bin/touch /run/jukebox-spotify-active, /bin/rm /run/jukebox-spotify-active, /bin/rm -f /run/jukebox-spotify-active" || true
+
+# --- Spotify Connect (raspotify / librespot) ---
+echo "==> Spotify Connect (raspotify)"
+if ! dpkg -l raspotify 2>/dev/null | grep -q "^ii"; then
+    curl -sL https://dtcooper.github.io/raspotify/install.sh | sh
+    echo "  installed"
+else
+    echo "  already installed"
+fi
+
+# Hook: pause snapclient when Spotify playback begins
+cat > /usr/local/bin/spotify-begin << 'SPBEGIN'
+#!/usr/bin/env bash
+sudo touch /run/jukebox-spotify-active 2>/dev/null || true
+sudo systemctl stop snapclient 2>/dev/null || true
+SPBEGIN
+chmod +x /usr/local/bin/spotify-begin
+
+# Hook: resume snapclient when Spotify playback ends
+cat > /usr/local/bin/spotify-end << 'SPEND'
+#!/usr/bin/env bash
+sudo rm -f /run/jukebox-spotify-active 2>/dev/null || true
+sleep 1
+if bluetoothctl info $(cat /etc/jukebox-bt-mac 2>/dev/null || echo '00:00:00:00:00:00') 2>/dev/null | grep -q 'Connected: yes'; then
+    sudo systemctl start snapclient
+fi
+SPEND
+chmod +x /usr/local/bin/spotify-end
+
+# Event handler script for librespot metadata + session hooks
+cat > /usr/local/bin/spotify-event << 'SPEVENT'
+#!/usr/bin/env bash
+# Called by librespot via --onevent with env vars:
+#   PLAYER_EVENT = session_connected | session_disconnected |
+#                  playing | paused | stopped | changed | ...
+#   TRACK_ID, ARTIST, TITLE, ALBUM, DURATION_MS, COVER_URL (if available)
+EVENT_DIR="/run/jukebox-spotify-meta"
+mkdir -p "$EVENT_DIR"
+case "$PLAYER_EVENT" in
+    session_connected|playing)
+        /usr/local/bin/spotify-begin
+        ;;
+    session_disconnected|stopped)
+        /usr/local/bin/spotify-end
+        rm -f "$EVENT_DIR"/*
+        ;;
+esac
+# Always write metadata if available
+[ -n "$TITLE" ]  && printf '%s' "$TITLE"  > "$EVENT_DIR/title"
+[ -n "$ARTIST" ] && printf '%s' "$ARTIST" > "$EVENT_DIR/artist"
+[ -n "$ALBUM" ]  && printf '%s' "$ALBUM"  > "$EVENT_DIR/album"
+[ -n "$TRACK_ID" ] && printf '%s' "$TRACK_ID" > "$EVENT_DIR/track_id"
+[ -n "$DURATION_MS" ] && printf '%s' "$DURATION_MS" > "$EVENT_DIR/duration_ms"
+SPEVENT
+chmod +x /usr/local/bin/spotify-event
+
+ensure_file /etc/raspotify/conf \
+"LIBRESPOT_NAME=\"Jukebox\"
+LIBRESPOT_BACKEND=\"pulseaudio\"
+LIBRESPOT_BITRATE=\"320\"
+LIBRESPOT_ONEVENT=\"/usr/local/bin/spotify-event\"
+LIBRESPOT_OTHER_OPTS=\"--disable-audio-cache\"" || true
+
+# Run raspotify as the jukebox user for PulseAudio access
+mkdir -p /etc/systemd/system/raspotify.service.d
+ensure_file /etc/systemd/system/raspotify.service.d/override.conf \
+"[Service]
+User=${JUKEBOX_USER}
+Group=${JUKEBOX_USER}
+Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
+Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse" || true
 
 # --- Web dashboard ---
 echo "==> Web dashboard"
@@ -425,7 +496,7 @@ WantedBy=multi-user.target" || true
 # --- Enable services ---
 echo "==> Enabling services"
 systemctl daemon-reload
-SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon)
+SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon raspotify)
 for svc in "${SERVICES[@]}"; do
     if systemctl is-enabled "$svc" &>/dev/null; then
         echo "  $svc already enabled"

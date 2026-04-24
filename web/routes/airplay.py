@@ -209,3 +209,36 @@ def airplay_cover():
     if not cover:
         return "", 404
     return Response(cover, mimetype=mime, headers={"Cache-Control": "no-cache"})
+
+
+# --- Spotify Connect metadata (from /run/jukebox-spotify-meta/) ---
+
+SPOTIFY_META_DIR = "/run/jukebox-spotify-meta"
+SPOTIFY_LOCK = "/run/jukebox-spotify-active"
+
+
+def _read_meta_file(name):
+    """Read a single metadata file, return empty string on failure."""
+    try:
+        with open(os.path.join(SPOTIFY_META_DIR, name), "r") as f:
+            return f.read().strip()
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+def spotify_is_active():
+    """Return True if Spotify Connect is currently playing."""
+    return os.path.exists(SPOTIFY_LOCK)
+
+
+@airplay_bp.route("/api/spotify/status")
+def spotify_status():
+    """Return current Spotify Connect now-playing state."""
+    active = os.path.exists(SPOTIFY_LOCK)
+    return jsonify({
+        "active": active,
+        "title": _read_meta_file("title"),
+        "artist": _read_meta_file("artist"),
+        "album": _read_meta_file("album"),
+        "track_id": _read_meta_file("track_id"),
+    })
