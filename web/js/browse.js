@@ -8,8 +8,8 @@ import { maSearch, fetchRecentlyPlayed, fetchPlaylists, maPlayMedia, fetchAlbumT
 import { fmtTime } from './player.js';
 
 let searchTimeout = null;
-let recentVisible = true;
-let playlistsVisible = true;
+let recentVisible = false;
+let playlistsVisible = false;
 let searchFilter = 'track,album,playlist';
 
 /** Initialize search input with debounce. */
