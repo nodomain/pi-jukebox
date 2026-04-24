@@ -39,13 +39,15 @@
         <div class="np-album" id="np-album"></div>
       </div>
       <div class="playback-controls" id="playback-controls">
-        <button id="np-shuffle" onclick="toggleShuffle()" style="display:none" title="Shuffle"><span class="material-symbols-outlined">shuffle</span></button>
         <button id="btn-prev" onclick="snapControl('previous')" disabled><span class="material-symbols-outlined">skip_previous</span></button>
         <button id="btn-playpause" onclick="togglePlayPause()" disabled><span class="material-symbols-outlined">play_arrow</span></button>
         <button id="btn-next" onclick="snapControl('next')" disabled><span class="material-symbols-outlined">skip_next</span></button>
+      </div>
+      <div class="playback-secondary">
+        <button id="np-shuffle" onclick="toggleShuffle()" style="display:none" title="Shuffle"><span class="material-symbols-outlined">shuffle</span></button>
         <button id="np-repeat" onclick="toggleRepeat()" style="display:none" title="Repeat"><span class="material-symbols-outlined">repeat</span></button>
-        <button id="btn-favorite" onclick="toggleFavorite()" title="Favorite" class="ctrl-btn"><span class="material-symbols-outlined">favorite</span></button>
-        <button id="btn-sleep" onclick="showSleepMenu()" title="Sleep Timer" class="ctrl-btn"><span class="material-symbols-outlined">bedtime</span><span id="sleep-timer-status" style="font-size:0.6em; display:none; margin-left:2px"></span></button>
+        <button id="btn-favorite" onclick="toggleFavorite()" title="Favorite"><span class="material-symbols-outlined">favorite</span></button>
+        <button id="btn-sleep" onclick="showSleepMenu()" title="Sleep Timer"><span class="material-symbols-outlined">bedtime</span><span id="sleep-timer-status" style="font-size:0.6em; display:none; margin-left:2px"></span></button>
       </div>
       <div class="np-progress">
         <span id="np-pos">0:00</span>

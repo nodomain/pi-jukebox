@@ -34,6 +34,11 @@ export async function loadQueue() {
         </span>
       </div>`;
     }).join('');
+    // Auto-scroll to current track
+    const current = list.querySelector('.q-current');
+    if (current) {
+      setTimeout(() => current.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100);
+    }
   } catch (e) {
     list.innerHTML = '<div style="color:var(--dim)">Error loading queue</div>';
   }
@@ -125,16 +130,26 @@ export function initQueueEvents() {
   const list = document.getElementById('queue-list');
   list.addEventListener('click', function (e) {
     const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const id = btn.dataset.id;
-    e.stopPropagation();
-    if (action === 'play') {
-      const row = btn.closest('.q-item');
-      queuePlay(id, row?.dataset.name);
+    if (btn) {
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      e.stopPropagation();
+      if (action === 'play') {
+        const row = btn.closest('.q-item');
+        queuePlay(id, row?.dataset.name);
+      }
+      else if (action === 'move-up') queueMove(id, -1);
+      else if (action === 'move-down') queueMove(id, 1);
+      else if (action === 'delete') queueDelete(id);
+      return;
     }
-    else if (action === 'move-up') queueMove(id, -1);
-    else if (action === 'move-down') queueMove(id, 1);
-    else if (action === 'delete') queueDelete(id);
+    // Tap on queue item toggles action buttons (mobile)
+    const item = e.target.closest('.q-item');
+    if (item) {
+      list.querySelectorAll('.q-item.q-expanded').forEach(el => {
+        if (el !== item) el.classList.remove('q-expanded');
+      });
+      item.classList.toggle('q-expanded');
+    }
   });
 }
