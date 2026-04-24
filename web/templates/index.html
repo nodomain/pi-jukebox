@@ -68,23 +68,28 @@
         <span style="opacity:0.5">Up next:</span> <span id="np-next-name"></span>
       </div>
       <!-- Volume controls -->
-      <div class="vol-grid vol-grid-3">
+      <div class="vol-main">
         <div class="vol-item">
-          <div class="vol-icon" title="Music Assistant"><span class="material-symbols-outlined">music_note</span></div>
-          <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
-          <span class="vol-val" id="ma-vol-val">—</span>
-        </div>
-        <div class="vol-item">
-          <div class="vol-icon" title="Snapcast"><span class="material-symbols-outlined">queue_music</span></div>
-          <input type="range" id="snap-vol-slider" min="0" max="100" value="100">
-          <span class="vol-val" id="snap-vol-val">—</span>
-        </div>
-        <div class="vol-item">
-          <div class="vol-icon" title="PipeWire"><span class="material-symbols-outlined">volume_up</span></div>
+          <div class="vol-icon" title="Volume"><span class="material-symbols-outlined">volume_up</span></div>
           <input type="range" id="vol-slider" min="0" max="100" value="30">
           <span class="vol-val" id="vol-val">—</span>
         </div>
       </div>
+      <details class="vol-advanced">
+        <summary style="cursor:pointer; font-size:0.65em; color:var(--dim); text-transform:uppercase; letter-spacing:0.5px; margin-top:6px">Advanced Volume</summary>
+        <div class="vol-grid" style="margin-top:6px">
+          <div class="vol-item">
+            <div class="vol-icon" title="Music Assistant"><span class="material-symbols-outlined">music_note</span></div>
+            <input type="range" id="ma-vol-slider" min="0" max="100" value="0">
+            <span class="vol-val" id="ma-vol-val">—</span>
+          </div>
+          <div class="vol-item">
+            <div class="vol-icon" title="Snapcast"><span class="material-symbols-outlined">queue_music</span></div>
+            <input type="range" id="snap-vol-slider" min="0" max="100" value="100">
+            <span class="vol-val" id="snap-vol-val">—</span>
+          </div>
+        </div>
+      </details>
     </div>
   </div>
 </div>
