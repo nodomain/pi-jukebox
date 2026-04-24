@@ -21,7 +21,7 @@ deploy: build ## Build + deploy web dashboard to the Pi
 	@ssh $(HOST) "rm -rf $(TMP_DIR) && mkdir -p $(TMP_DIR)/templates $(TMP_DIR)/static $(TMP_DIR)/routes"
 	@scp -q web/app.py web/helpers.py web/cava.conf $(HOST):$(TMP_DIR)/
 	@scp -q web/routes/*.py                         $(HOST):$(TMP_DIR)/routes/
-	@scp -q web/static/style.css web/static/app.js web/static/manifest.json web/static/favicon.svg web/static/icon-192.png web/static/icon-512.png $(HOST):$(TMP_DIR)/static/
+	@scp -q web/static/style.css web/static/app.js web/static/manifest.json web/static/favicon.svg web/static/icon-192.png web/static/icon-512.png web/static/sw.js $(HOST):$(TMP_DIR)/static/
 	@scp -q web/templates/index.html                $(HOST):$(TMP_DIR)/templates/
 	@echo "==> Deploying to $(REMOTE_DIR)"
 	@ssh $(HOST) "\

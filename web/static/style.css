@@ -31,9 +31,14 @@ body {
   background: var(--bg);
   color: var(--text);
   padding: 12px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
   max-width: 1200px;
   margin: 0 auto;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 
 h1 { font-size: 1.2em; margin-bottom: 12px; text-align: center; }
