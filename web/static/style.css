@@ -74,10 +74,13 @@ button.secondary { background: var(--border); color: var(--text); }
 
 input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
 
-/* Volume controls — side by side */
-.vol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
-.vol-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-@media (max-width: 500px) { .vol-grid-3 { grid-template-columns: 1fr; } }
+/* Volume controls */
+.vol-main { margin-top: 10px; }
+.vol-main .vol-item input[type=range] { height: 32px; }
+.vol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vol-advanced { margin-top: 2px; }
+.vol-advanced summary { user-select: none; }
+.vol-advanced[open] summary { margin-bottom: 4px; }
 .vol-item { display: flex; align-items: center; gap: 8px; }
 .vol-item .vol-icon { color: var(--dim); display: flex; align-items: center; }
 .vol-item .vol-icon .material-symbols-outlined { font-size: 20px; }
