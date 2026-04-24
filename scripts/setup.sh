@@ -419,13 +419,13 @@ cat > /usr/local/bin/spotify-event << 'SPEVENT'
 #                  playing | paused | stopped | changed | ...
 #   TRACK_ID, ARTIST, TITLE, ALBUM, DURATION_MS, COVER_URL (if available)
 EVENT_DIR="/run/jukebox-spotify-meta"
-mkdir -p "$EVENT_DIR"
+mkdir -p "$EVENT_DIR" 2>/dev/null || true
 case "$PLAYER_EVENT" in
     session_connected|playing)
-        /usr/local/bin/spotify-begin
+        /usr/local/bin/spotify-begin || true
         ;;
     session_disconnected|stopped)
-        /usr/local/bin/spotify-end
+        /usr/local/bin/spotify-end || true
         rm -f "$EVENT_DIR"/*
         ;;
 esac
@@ -435,6 +435,7 @@ esac
 [ -n "$ALBUM" ]  && printf '%s' "$ALBUM"  > "$EVENT_DIR/album"
 [ -n "$TRACK_ID" ] && printf '%s' "$TRACK_ID" > "$EVENT_DIR/track_id"
 [ -n "$DURATION_MS" ] && printf '%s' "$DURATION_MS" > "$EVENT_DIR/duration_ms"
+exit 0
 SPEVENT
 chmod +x /usr/local/bin/spotify-event
 
@@ -452,7 +453,17 @@ ensure_file /etc/systemd/system/raspotify.service.d/override.conf \
 User=${JUKEBOX_USER}
 Group=${JUKEBOX_USER}
 Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
-Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse" || true
+Environment=PULSE_RUNTIME_PATH=/run/user/${UID_NUM}/pulse
+ProtectHome=false
+PrivateTmp=false" || true
+
+# Pre-create metadata directory writable by the jukebox user
+mkdir -p /run/jukebox-spotify-meta
+chown ${JUKEBOX_USER}:${JUKEBOX_USER} /run/jukebox-spotify-meta
+
+# Ensure metadata dir survives reboots (tmpfiles.d)
+ensure_file /etc/tmpfiles.d/jukebox-spotify.conf \
+"d /run/jukebox-spotify-meta 0755 ${JUKEBOX_USER} ${JUKEBOX_USER} -" || true
 
 # --- Web dashboard ---
 echo "==> Web dashboard"
