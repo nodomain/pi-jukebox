@@ -34,10 +34,10 @@ export async function loadQueue() {
         </span>
       </div>`;
     }).join('');
-    // Auto-scroll to current track
+    // Auto-scroll to current track within the queue container
     const current = list.querySelector('.q-current');
     if (current) {
-      setTimeout(() => current.scrollIntoView({ block: 'center', behavior: 'smooth' }), 100);
+      setTimeout(() => current.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 100);
     }
   } catch (e) {
     list.innerHTML = '<div style="color:var(--dim)">Error loading queue</div>';
