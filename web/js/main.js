@@ -91,6 +91,16 @@ function init() {
     updateProgress();
     updateSleepTimerDisplay();
   }, 1000);
+
+  // Refresh all data when app comes back from background (iOS PWA)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      pollSnapcast();
+      pollMaQueue();
+      pollMaVolume();
+      pollAirplay();
+    }
+  });
 }
 
 init();
