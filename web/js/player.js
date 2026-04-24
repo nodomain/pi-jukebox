@@ -8,7 +8,7 @@ import {
   fetchSnapcastStatus, snapcastControl,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
   setSnapcastClientVolume, maFavorite,
-  fetchAirplayStatus,
+  fetchAirplayStatus, fetchSpotifyStatus,
 } from './api.js';
 
 /** Format seconds as m:ss. */
@@ -406,38 +406,49 @@ export function initSwipeGestures() {
 }
 
 
-/** Poll AirPlay status and update the now-playing display if active. */
+/** Poll AirPlay and Spotify status, update now-playing if either is active. */
 export async function pollAirplay() {
   try {
-    const d = await fetchAirplayStatus();
+    const [ap, sp] = await Promise.all([fetchAirplayStatus(), fetchSpotifyStatus()]);
     const card = document.getElementById('player-card');
-    state.airplayActive = !!d.active;
-    if (d.active) {
-      // Override Now Playing with AirPlay info
-      document.getElementById('np-title').textContent = d.title || 'AirPlay';
-      document.getElementById('np-artist').textContent = d.artist || '';
-      document.getElementById('np-album').textContent = d.album || '';
+    const badge = document.getElementById('airplay-badge');
+
+    // Determine which external source is active (AirPlay takes priority)
+    let ext = null;
+    if (ap.active) ext = { ...ap, source: 'AirPlay', emoji: '📱' };
+    else if (sp.active) ext = { ...sp, source: 'Spotify', emoji: '🟢' };
+
+    state.airplayActive = !!ext;
+
+    if (ext) {
+      document.getElementById('np-title').textContent = ext.title || ext.source;
+      document.getElementById('np-artist').textContent = ext.artist || '';
+      document.getElementById('np-album').textContent = ext.album || '';
+
+      // Cover (AirPlay only — Spotify doesn't provide cover via librespot events)
       const art = document.getElementById('np-art');
-      if (d.has_cover) {
-        // Only reload cover if the track changed
-        const key = d.title + '|' + d.artist;
+      if (ext.has_cover) {
+        const key = ext.title + '|' + ext.artist;
         if (key !== state.airplayTrackKey) {
           state.airplayTrackKey = key;
           art.src = '/api/airplay/cover?t=' + encodeURIComponent(key);
         }
         art.style.display = '';
+      } else {
+        art.style.display = 'none';
       }
-      // AirPlay badge indicator
-      const badge = document.getElementById('airplay-badge');
-      if (badge) badge.style.display = '';
+
+      // Badge
+      if (badge) {
+        badge.textContent = ext.emoji + ' ' + ext.source;
+        badge.style.display = '';
+      }
       card.classList.add('airplay-active');
-      // Hide things that don't apply to AirPlay
       document.getElementById('btn-prev').style.visibility = 'hidden';
       document.getElementById('btn-next').style.visibility = 'hidden';
       document.getElementById('btn-playpause').style.visibility = 'hidden';
     } else {
       state.airplayTrackKey = '';
-      const badge = document.getElementById('airplay-badge');
       if (badge) badge.style.display = 'none';
       card.classList.remove('airplay-active');
       document.getElementById('btn-prev').style.visibility = '';

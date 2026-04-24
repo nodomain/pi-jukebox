@@ -238,3 +238,9 @@ export function fetchPlaylistTracks(itemId, provider = 'builtin') {
 export function fetchAirplayStatus() {
   return fetch('/api/airplay/status').then(r => r.json());
 }
+
+
+/** Fetch Spotify Connect status. */
+export function fetchSpotifyStatus() {
+  return fetch('/api/spotify/status').then(r => r.json());
+}
