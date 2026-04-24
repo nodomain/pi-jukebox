@@ -10,8 +10,8 @@ export function initFFT() {
   const ctx = canvas.getContext('2d');
   let bars = [];
   let targetBars = [];
-  const ATTACK = 0.7;   // fast rise
-  const DECAY = 0.88;   // slow fall
+  const ATTACK = 0.25;   // gentle rise
+  const DECAY = 0.94;    // slow, smooth fall
 
   function resize() {
     canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
@@ -25,42 +25,43 @@ export function initFFT() {
     const h = canvas.height;
     const n = bars.length || 1;
     const dpr = window.devicePixelRatio || 1;
-    const gap = 1.5 * dpr;
-    const barW = Math.max(1, (w - gap * (n + 1)) / n);
+    const gap = 1 * dpr;
+    const barW = Math.max(2, (w - gap * (n + 1)) / n);
 
     ctx.clearRect(0, 0, w, h);
 
     for (let i = 0; i < n; i++) {
       const target = (targetBars[i] || 0) / 100;
       const current = bars[i] || 0;
-      // Fast attack, slow decay
+      // Smooth interpolation
       bars[i] = target > current
         ? current + (target - current) * ATTACK
-        : current * DECAY;
+        : current + (target - current) * (1 - DECAY);
 
-      const val = Math.min(1, bars[i]);
-      if (val < 0.005) continue;
+      const val = Math.min(1, Math.max(0, bars[i]));
+      if (val < 0.008) continue;
 
       const barH = val * h * 0.85;
       const x = gap + i * (barW + gap);
       const y = h - barH;
 
-      // Gradient: accent blue → cyan → white at peak
+      // Soft gradient: muted blue → teal, low opacity
+      const alpha = 0.3 + val * 0.5;
       const grad = ctx.createLinearGradient(x, h, x, y);
-      grad.addColorStop(0, `hsla(210, 90%, 55%, 0.4)`);
-      grad.addColorStop(0.5, `hsla(200, 85%, 60%, ${0.6 + val * 0.3})`);
-      grad.addColorStop(1, `hsla(190, 80%, ${65 + val * 25}%, ${0.8 + val * 0.2})`);
+      grad.addColorStop(0, `hsla(210, 60%, 50%, ${alpha * 0.3})`);
+      grad.addColorStop(0.6, `hsla(200, 55%, 58%, ${alpha * 0.7})`);
+      grad.addColorStop(1, `hsla(190, 50%, ${60 + val * 20}%, ${alpha})`);
 
       ctx.fillStyle = grad;
-      const r = Math.min(2 * dpr, barW / 2);
+      const r = Math.min(3 * dpr, barW / 2);
       ctx.beginPath();
       ctx.roundRect(x, y, barW, barH, [r, r, 0, 0]);
       ctx.fill();
 
       // Subtle glow on loud bars
-      if (val > 0.5) {
-        ctx.shadowColor = `hsla(200, 90%, 65%, ${(val - 0.5) * 0.6})`;
-        ctx.shadowBlur = 6 * dpr;
+      if (val > 0.6) {
+        ctx.shadowColor = `hsla(200, 60%, 60%, ${(val - 0.6) * 0.4})`;
+        ctx.shadowBlur = 8 * dpr;
         ctx.fillRect(x, y, barW, 1);
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;

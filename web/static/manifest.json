@@ -1,21 +1,26 @@
 {
   "name": "Jukebox Pi",
   "short_name": "Jukebox",
-  "description": "Headless Snapcast client dashboard",
+  "description": "Music dashboard — Snapcast, AirPlay, Spotify Connect",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
+  "categories": ["music", "entertainment"],
   "icons": [
     {
       "src": "/static/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/static/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
