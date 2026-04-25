@@ -1,0 +1,10 @@
+{
+  "include": ["routes", "app.py", "helpers.py"],
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none",
+  "reportGeneralTypeIssues": "warning",
+  "reportOptionalMemberAccess": "warning",
+  "reportArgumentType": "error",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic"
+}

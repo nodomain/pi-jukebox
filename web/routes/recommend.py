@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import urllib.request
+import urllib.parse
 import urllib.error
 
 from flask import Blueprint, Response, jsonify, request  # pylint: disable=import-error
@@ -54,8 +55,8 @@ def _lastfm_similar(artist, track, limit=20):
         url = (
             "https://ws.audioscrobbler.com/2.0/"
             f"?method=track.getsimilar"
-            f"&artist={urllib.request.quote(artist)}"
-            f"&track={urllib.request.quote(track)}"
+            f"&artist={urllib.parse.quote(artist)}"
+            f"&track={urllib.parse.quote(track)}"
             f"&api_key={LASTFM_API_KEY}"
             f"&limit={limit}"
             f"&format=json"
@@ -92,7 +93,7 @@ def _lastfm_similar_artists(artist, limit=10):
         url = (
             "https://ws.audioscrobbler.com/2.0/"
             f"?method=artist.getsimilar"
-            f"&artist={urllib.request.quote(artist)}"
+            f"&artist={urllib.parse.quote(artist)}"
             f"&api_key={LASTFM_API_KEY}"
             f"&limit={limit}"
             f"&format=json"
