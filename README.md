@@ -103,19 +103,23 @@ After reboot the Pi auto-connects and starts streaming.
 make deploy
 ```
 
-### 6. USB WiFi adapter (optional)
+### 6. USB WiFi adapter (optional, recommended)
 
-For better audio quality, plug in a TP-Link AC600 (Archer T2U Nano) USB WiFi adapter. It connects on 5 GHz, freeing the 2.4 GHz band for Bluetooth and reducing audio stutter.
+For stable audio streaming, plug in a TP-Link AC600 (Archer T2U Nano) USB WiFi adapter. It connects on 5 GHz, freeing the 2.4 GHz band for Bluetooth and reducing audio stutter. When the USB adapter is present, onboard WiFi is automatically disabled to prevent dual-homing routing issues.
 
 ```bash
 # Build and install the driver (requires Docker on the dev machine)
 ./scripts/build-wifi-driver.sh
 
-# Re-run setup to configure NetworkManager fallback
+# Re-run setup to configure NetworkManager, USB stability, CPU governor
 make setup
 ```
 
-When the USB adapter is plugged in, the Pi uses it on 5 GHz (priority 100). When unplugged, it falls back to onboard WiFi on 2.4 GHz (priority 10). No reboot needed for the switch.
+Setup configures:
+- **USB autosuspend disabled** — prevents the Pi's USB controller from dropping the adapter
+- **dwc_otg kernel params** — stabilizes the Pi Zero 2 W's single USB port under load
+- **Onboard WiFi auto-disabled** — udev rule disconnects wlan1 when wlan-usb is present
+- **Automatic fallback** — if the USB adapter is unplugged, onboard WiFi reconnects
 
 ## Make Targets
 
@@ -137,7 +141,7 @@ make ssh       — open SSH session
 
 | Component | Details |
 |---|---|
-| **snapclient** | PulseAudio output, connects to Snapcast server |
+| **snapclient** | PulseAudio output, connects to Snapcast server, 500ms latency buffer, fixed hostID |
 | **PipeWire + WirePlumber** | Bluetooth A2DP audio backend |
 | **BlueZ** | `AutoEnable=true`, speaker paired and trusted |
 | **WirePlumber** | Seat monitoring disabled (headless fix), SBC-XQ codec preferred |
@@ -151,6 +155,10 @@ make ssh       — open SSH session
 | **SD card protection** | tmpfs on `/var/log` + `/var/tmp`, volatile journal, `commit=120s` |
 | **WiFi power save** | Disabled — prevents latency spikes |
 | **USB WiFi (optional)** | udev rule + NM connection for TP-Link AC600, 5 GHz preferred, auto-fallback to onboard |
+| **USB autosuspend** | Disabled via udev rule + kernel param `usbcore.autosuspend=-1` |
+| **dwc_otg stability** | Kernel param `dwc_otg.fiq_fsm_mask=0x7` — stabilizes Pi Zero 2 W USB controller |
+| **CPU governor** | Pinned to `performance` (1 GHz constant) — no clock-scaling delays for real-time audio |
+| **WiFi exclusive mode** | Onboard WiFi auto-disabled when USB adapter present (prevents dual-homing) |
 | **Disabled timers** | apt-daily, man-db, fstrim, e2scrub |
 
 ## Project Structure
@@ -309,7 +317,13 @@ ssh <user>@<host> "journalctl -u shairport-sync --no-pager -n 20"
 
 ### Performance Notes
 
-Buffer warnings in snapclient logs (`pShortBuffer`, `pBuffer`, `pMiniBuffer`) indicate Snapcast correcting timing drift — normal on WiFi. The `--latency 100` flag adds 100ms of extra PCM buffer in PulseAudio to absorb WiFi jitter before it causes audible glitches.
+Buffer warnings in snapclient logs (`pShortBuffer`, `pBuffer`, `pMiniBuffer`) indicate Snapcast correcting timing drift — normal on WiFi. The `--latency 500` flag adds 500ms of extra PCM buffer in PulseAudio to absorb WiFi jitter before it causes audible glitches.
+
+The CPU governor is set to `performance` (constant 1 GHz) to avoid clock-scaling delays that cause audio underruns. The `ondemand` governor is too slow to ramp up for real-time audio processing on the Pi Zero 2 W.
+
+If you use the USB WiFi adapter, onboard WiFi is automatically disabled to prevent dual-homing (two interfaces in the same subnet), which causes routing instability and packet loss. The USB adapter's `autosuspend` is disabled via udev rule and kernel parameter to prevent the Pi's `dwc_otg` USB controller from dropping the device.
+
+Snapclient uses `--hostID jukebox` to register with a fixed identifier on the Snapcast server. Without this, Snapcast identifies clients by MAC address, and switching between onboard WiFi and the USB adapter creates ghost clients on different streams.
 
 If you still hear stutters, increase the Music Assistant Snapcast buffer (currently 2000ms) further, or reduce chunk size to 20ms for finer correction granularity.
 

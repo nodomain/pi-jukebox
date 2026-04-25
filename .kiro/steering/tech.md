@@ -6,21 +6,36 @@
 - `python3-flask` (system package, not pip)
 - `python3-websocket` (`websocket-client`) for Music Assistant WebSocket connection
 - No virtual environment — uses system Python on the Pi
+- Routes split into **Flask blueprints** in `web/routes/`
 
 ## Frontend
 
 - **Vanilla HTML/CSS/JS** — single-page app in `web/templates/index.html`
+- **ES modules** in `web/js/`, bundled to `web/static/app.js` via **esbuild**
 - **Chart.js 4** via CDN (`chart.umd.min.js`) — live system metric charts
-- No build step, no bundler, no framework
+- Build step: `npm run build` (in `web/`) — required before deploy
 - Dark theme, mobile-first responsive layout (up to 1200px)
 
 ## System Services
 
-- **Snapcast** client (`snapclient`) — audio streaming
+- **Snapcast** client (`snapclient`) — audio streaming (500ms latency buffer)
 - **PipeWire + WirePlumber** — Bluetooth A2DP audio backend
 - **BlueZ** — Bluetooth stack
+- **shairport-sync** — AirPlay receiver
+- **raspotify** (librespot) — Spotify Connect receiver
 - **cava** — console audio visualizer, used for FFT data streamed via SSE
 - **NetworkManager** — WiFi management
+- **cpu-performance.service** — pins CPU governor to `performance` (1 GHz constant)
+
+## WiFi & Audio Stability
+
+- **USB WiFi adapter** (TP-Link AC600, RTL8812AU) on 5 GHz with out-of-tree `88XXau` driver
+- **Onboard WiFi auto-disabled** when USB adapter is present (udev rule + `/usr/local/bin/wifi-switch`)
+- **USB autosuspend disabled** — udev rule (`71-wifi-usb-power.conf`) + kernel param `usbcore.autosuspend=-1`
+- **dwc_otg stabilized** — kernel param `dwc_otg.fiq_fsm_mask=0x7` for Pi Zero 2 W USB controller
+- **WiFi power save disabled** — NetworkManager `wifi.powersave = 2`
+- **Snapclient buffer: 500ms** (`--latency 500`) — absorbs WiFi jitter
+- **Snapclient hostID: fixed** (`--hostID jukebox`) — prevents ghost clients when WiFi interface MAC changes
 
 ## APIs & Protocols
 
@@ -35,19 +50,22 @@
 
 - `scripts/setup.sh` — full Pi provisioning, idempotent (run as root, reads `.env`)
 - `scripts/pair-bt.sh` — Bluetooth speaker pairing (run as root after setup + reboot)
+- `scripts/build-wifi-driver.sh` — cross-compile RTL8812AU driver via Docker (run on dev machine)
 - All use `bash` with `set -euo pipefail`
 
 ## Configuration
 
 - `.env` file (copied from `.env.example`) — user, host, Snapcast server IP, BT MAC, MA token
 - `.env` is gitignored
+- Kernel boot params in `/boot/firmware/cmdline.txt` — USB autosuspend, dwc_otg stability
 
 ## Deployment
 
 No CI/CD. Makefile wraps SCP + SSH:
 
 ```bash
-make deploy    # deploy web dashboard
+make build     # bundle JS modules with esbuild
+make deploy    # build + deploy web dashboard
 make setup     # full Pi provisioning
 make pair      # Bluetooth pairing
 make status    # check services + BT + Snapcast
@@ -73,6 +91,9 @@ make status
 
 # Tail logs
 make logs
+
+# Build USB WiFi driver (from dev machine, needs Docker)
+./scripts/build-wifi-driver.sh
 
 # Run Flask app locally (for development — won't have Pi hardware APIs)
 cd web && python3 app.py

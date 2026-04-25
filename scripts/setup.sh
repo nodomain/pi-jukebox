@@ -91,8 +91,9 @@ fi
 
 # --- Snapclient config ---
 echo "==> Snapclient"
+# Buffer of 500ms absorbs WiFi jitter; fixed hostID prevents ghost clients when MAC changes
 ensure_file /etc/default/snapclient \
-    "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse --latency 100\"" || true
+    "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse --latency 500 --hostID jukebox\"" || true
 
 mkdir -p /etc/systemd/system/snapclient.service.d
 ensure_file /etc/systemd/system/snapclient.service.d/override.conf \
@@ -117,18 +118,100 @@ ensure_file /etc/NetworkManager/conf.d/wifi-powersave.conf \
 "[connection]
 wifi.powersave = 2" || true
 
+# --- USB autosuspend + stability ---
+echo "==> USB autosuspend disable + dwc_otg stability"
+# Disable USB autosuspend for the Realtek WiFi adapter via udev
+ensure_file /etc/udev/rules.d/71-wifi-usb-power.conf \
+'ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="2357", ATTRS{idProduct}=="011e", ATTR{power/autosuspend}="-1", ATTR{power/control}="on"' || true
+
+# Kernel boot params: disable USB autosuspend globally + stabilize dwc_otg
+CMDLINE="/boot/firmware/cmdline.txt"
+NEED_REBOOT=false
+# Add usbcore.autosuspend=-1 if missing
+if ! grep -q 'usbcore.autosuspend=-1' "$CMDLINE" 2>/dev/null; then
+    sed -i 's/$/ usbcore.autosuspend=-1/' "$CMDLINE"
+    echo "  added usbcore.autosuspend=-1 to cmdline"
+    NEED_REBOOT=true
+fi
+# Add dwc_otg.fiq_fsm_mask=0x7 for better USB stability on Pi Zero 2 W
+if ! grep -q 'dwc_otg.fiq_fsm_mask' "$CMDLINE" 2>/dev/null; then
+    sed -i 's/$/ dwc_otg.fiq_fsm_mask=0x7/' "$CMDLINE"
+    echo "  added dwc_otg.fiq_fsm_mask=0x7 to cmdline"
+    NEED_REBOOT=true
+fi
+
+# --- CPU governor: performance ---
+echo "==> CPU governor (performance)"
+ensure_file /etc/systemd/system/cpu-performance.service \
+"[Unit]
+Description=Set CPU governor to performance
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target" || true
+systemctl enable cpu-performance.service 2>/dev/null || true
+
+# --- Disable onboard WiFi when USB adapter is present ---
+echo "==> Disable onboard WiFi when USB adapter active"
+# udev rule: when wlan-usb comes up, disable wlan1; when it goes away, re-enable
+ensure_file /etc/udev/rules.d/72-wifi-exclusive.conf \
+'# Disable onboard WiFi when USB adapter is present (avoid dual-homing)
+SUBSYSTEM=="net", ACTION=="add", KERNEL=="wlan-usb", RUN+="/usr/local/bin/wifi-switch usb-up"
+SUBSYSTEM=="net", ACTION=="remove", ENV{INTERFACE}=="wlan-usb", RUN+="/usr/local/bin/wifi-switch usb-down"' || true
+
+cat > /usr/local/bin/wifi-switch << 'WIFISWITCH'
+#!/usr/bin/env bash
+# Switch between USB and onboard WiFi to avoid dual-homing issues.
+# Finds the onboard interface dynamically (brcmfmac driver, not wlan-usb).
+ONBOARD=$(ls /sys/class/net/ | while read iface; do
+    drv=$(basename "$(readlink "/sys/class/net/$iface/device/driver" 2>/dev/null)" 2>/dev/null)
+    [ "$drv" = "brcmfmac" ] && echo "$iface" && break
+done)
+[ -z "$ONBOARD" ] && exit 0
+
+case "$1" in
+    usb-up)
+        # USB adapter came up — disconnect onboard WiFi
+        sleep 2
+        nmcli device disconnect "$ONBOARD" 2>/dev/null || true
+        ;;
+    usb-down)
+        # USB adapter removed — reconnect onboard WiFi as fallback
+        nmcli device connect "$ONBOARD" 2>/dev/null || true
+        ;;
+esac
+WIFISWITCH
+chmod +x /usr/local/bin/wifi-switch
+
+# Also disable autoconnect on the onboard WiFi NM connection as a belt-and-suspenders measure.
+# The netplan connection name varies, so match by pattern.
+for conn in $(nmcli -t -f NAME connection show 2>/dev/null | grep -i 'netplan-wlan0'); do
+    nmcli connection modify "$conn" autoconnect no 2>/dev/null || true
+    echo "  disabled autoconnect for $conn"
+done
+
 # --- WiFi roaming ---
 echo "==> WiFi roaming helper"
 cat > /usr/local/bin/wifi-roam << 'ROAM'
 #!/usr/bin/env bash
 THRESHOLD=-70
-IFACE=wlan0
 while true; do
-    SIGNAL=$(iw dev $IFACE link 2>/dev/null | grep signal | awk '{print $2}')
+    # Find the active WiFi interface (prefer wlan-usb, fall back to onboard)
+    IFACE=$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | grep ':wifi:connected' | head -1 | cut -d: -f1)
+    if [ -z "$IFACE" ]; then
+        sleep 30
+        continue
+    fi
+    SIGNAL=$(iw dev "$IFACE" link 2>/dev/null | grep signal | awk '{print $2}')
     if [ -n "$SIGNAL" ] && [ "$SIGNAL" -lt "$THRESHOLD" ] 2>/dev/null; then
-        nmcli device wifi rescan ifname $IFACE 2>/dev/null
+        nmcli device wifi rescan ifname "$IFACE" 2>/dev/null
         sleep 5
-        nmcli device wifi connect --ifname $IFACE 2>/dev/null || true
+        nmcli device wifi connect --ifname "$IFACE" 2>/dev/null || true
     fi
     sleep 30
 done
@@ -183,6 +266,7 @@ else
 fi
 
 # Lower priority for onboard WiFi so USB adapter wins when present
+# (autoconnect is disabled above, but keep low priority as fallback)
 nmcli connection modify netplan-wlan0-* connection.autoconnect-priority 10 2>/dev/null || true
 
 # --- WirePlumber ---
@@ -553,7 +637,7 @@ WantedBy=multi-user.target" || true
 # --- Enable services ---
 echo "==> Enabling services"
 systemctl daemon-reload
-SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon raspotify)
+SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon raspotify cpu-performance)
 for svc in "${SERVICES[@]}"; do
     if systemctl is-enabled "$svc" &>/dev/null; then
         echo "  $svc already enabled"
@@ -575,6 +659,9 @@ done
 
 echo ""
 echo "=== Setup complete ==="
+if [[ "${NEED_REBOOT:-false}" == "true" ]]; then
+    echo "⚠  Kernel cmdline was modified — REBOOT REQUIRED for USB/CPU changes!"
+fi
 echo "Next steps:"
 echo "  1. Reboot: sudo reboot"
 echo "  2. Put ${BT_DEVICE_NAME} in Bluetooth pairing mode"
