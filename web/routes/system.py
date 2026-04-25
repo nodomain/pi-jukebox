@@ -82,6 +82,18 @@ def _parse_wifi():
         elif line.startswith("rx bitrate:"):
             wifi["rx_bitrate"] = line.split(":")[1].strip()
 
+    # Fallback: /proc/net/wireless (works for wext drivers like rtl88XXau)
+    if "signal" not in wifi:
+        proc_wireless = run("cat /proc/net/wireless 2>/dev/null")
+        for line in proc_wireless.splitlines():
+            if iface in line:
+                parts = line.split()
+                if len(parts) >= 4:
+                    try:
+                        wifi["signal"] = str(int(float(parts[3]))) + " dBm"
+                    except ValueError:
+                        pass
+
     link = run(f"/usr/sbin/iw dev {iface} link")
     for line in link.splitlines():
         line = line.strip()
