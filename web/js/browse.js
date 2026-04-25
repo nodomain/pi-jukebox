@@ -221,13 +221,15 @@ export async function loadPlaylists() {
       return;
     }
     card.style.display = '';
-    list.innerHTML = d.items.map(item =>
-      `<div class="playlist-item" data-uri="${item.uri}" onclick="playPlaylist(this)">
-        <span style="color:var(--dim)">▶</span>
-        <span class="pl-name">${item.name}</span>
-        ${item.owner ? `<span style="color:var(--dim);font-size:0.75em">${item.owner}</span>` : ''}
-      </div>`
-    ).join('');
+    list.innerHTML = '<div class="pl-grid">' + d.items.filter(i => i.name).map(item => {
+      const img = item.image_url
+        ? `<img class="pl-cover" src="/api/ma/imageproxy?url=${encodeURIComponent(item.image_url)}" alt="" loading="lazy">`
+        : '<div class="pl-cover pl-cover-empty">🎵</div>';
+      return `<div class="pl-tile" data-uri="${item.uri}" onclick="playPlaylist(this)">
+        ${img}
+        <div class="pl-label">${item.name}</div>
+      </div>`;
+    }).join('') + '</div>';
   } catch (e) {
     card.style.display = 'none';
   }
