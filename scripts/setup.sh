@@ -166,9 +166,9 @@ fi
 # NM connection for USB adapter: higher priority, prefer 5GHz
 # Only create if not already present
 if ! nmcli connection show wifi-usb &>/dev/null; then
-    # Get WiFi password from existing connection
-    WIFI_PSK=$(grep -oP 'psk=\K.*' /etc/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
-    WIFI_SSID=$(grep -oP 'ssid=\K.*' /etc/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
+    # Get WiFi password from existing connection (netplan stores in /run/)
+    WIFI_PSK=$(grep -oP 'psk=\K.*' /run/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
+    WIFI_SSID=$(grep -oP 'ssid=\K.*' /run/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
     if [[ -n "$WIFI_SSID" && -n "$WIFI_PSK" ]]; then
         nmcli connection add type wifi ifname wlan-usb con-name wifi-usb \
             ssid "$WIFI_SSID" \
