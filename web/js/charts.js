@@ -123,6 +123,18 @@ export function handleStats(d) {
   const memPct = d.mem_total_kb ? Math.round(d.mem_used_kb / d.mem_total_kb * 100) : 0;
   document.getElementById('mem').textContent = memPct + '%';
   document.getElementById('wifi-signal').textContent = d.wifi.signal || '—';
+  // WiFi details
+  const wifiDetail = document.getElementById('wifi-detail');
+  if (wifiDetail) {
+    const parts = [];
+    if (d.wifi.band) parts.push(d.wifi.band);
+    if (d.wifi.channel) parts.push('Ch ' + d.wifi.channel);
+    if (d.wifi.tx_bitrate) parts.push(d.wifi.tx_bitrate);
+    if (d.wifi.interface) parts.push(d.wifi.interface);
+    if (d.wifi.adapter) parts.push(d.wifi.adapter);
+    else if (d.wifi.driver) parts.push(d.wifi.driver);
+    wifiDetail.textContent = parts.join(' · ');
+  }
   document.getElementById('uptime').textContent = formatUptime(d.uptime);
   document.getElementById('load').textContent = (d.load || []).join(' ');
   document.getElementById('sd-writes').textContent = d.sd_writes;
