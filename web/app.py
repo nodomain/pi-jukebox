@@ -21,6 +21,7 @@ from routes.system import system_bp
 from routes.fft import fft_bp
 from routes.events import events_bp, start_poll_thread
 from routes.airplay import airplay_bp, start_airplay_thread
+from routes.recommend import recommend_bp
 
 app = Flask(__name__)
 
@@ -34,6 +35,7 @@ app.register_blueprint(system_bp)
 app.register_blueprint(fft_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(airplay_bp)
+app.register_blueprint(recommend_bp)
 
 
 @app.route("/")
@@ -49,4 +51,4 @@ start_airplay_thread()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080, threaded=True)

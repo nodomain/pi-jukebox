@@ -8,7 +8,7 @@ import {
   fetchSnapcastStatus, snapcastControl,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
   setSnapcastClientVolume, maFavorite,
-  fetchAirplayStatus, fetchSpotifyStatus,
+  fetchAirplayStatus, fetchSpotifyStatus, maControl, fetchLyrics,
 } from './api.js';
 
 /** Format seconds as m:ss. */
@@ -29,6 +29,35 @@ export function updateProgress() {
   document.getElementById('np-pos').textContent = fmtTime(pos);
   document.getElementById('np-dur').textContent = fmtTime(state.npDuration);
   document.getElementById('progress-fill').style.width = (pos / state.npDuration * 100) + '%';
+
+  // Synced lyrics highlighting
+  if (state._lrcLines && state._lrcLines.length > 0) {
+    const lines = state._lrcLines;
+    // Offset by 1.5s to compensate for Snapcast buffer + network latency
+    const lrcPos = pos + 1.5;
+    let activeIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lrcPos >= lines[i].time) { activeIdx = i; break; }
+    }
+    if (activeIdx !== state._lastLrcIdx) {
+      state._lastLrcIdx = activeIdx;
+      const container = document.getElementById('lyrics-text');
+      if (container) {
+        container.querySelectorAll('.lrc-line').forEach((el, i) => {
+          el.classList.toggle('lrc-active', i === activeIdx);
+          el.classList.toggle('lrc-past', i < activeIdx);
+        });
+        // Auto-scroll within lyrics container only (not the page)
+        const activeLine = container.querySelector('.lrc-active');
+        if (activeLine) {
+          const containerRect = container.getBoundingClientRect();
+          const lineRect = activeLine.getBoundingClientRect();
+          const offset = lineRect.top - containerRect.top - containerRect.height / 3;
+          container.scrollBy({ top: offset, behavior: 'smooth' });
+        }
+      }
+    }
+  }
 }
 
 /** Update the blurred album art background. */
@@ -40,18 +69,63 @@ function updatePlayerBackground(imageUrl) {
 
 /** Send a Snapcast playback control command. */
 export async function snapControl(action) {
-  if (!state.currentStreamId) return;
-  // Optimistic UI update for play/pause
+  if (!state.currentQueueId) return;
+  state.playStateLockUntil = Date.now() + 5000;
+
   if (action === 'play' || action === 'pause') {
     state.isPlaying = action === 'play';
-    state.playStateLockUntil = Date.now() + 5000;
     const btn = document.getElementById('btn-playpause');
     btn.innerHTML = state.isPlaying
       ? '<span class="material-symbols-outlined">pause</span>'
       : '<span class="material-symbols-outlined">play_arrow</span>';
   }
-  await snapcastControl(action, state.currentStreamId);
-  setTimeout(pollSnapcast, 500);
+
+  // Optimistic UI for skip: show "Up Next" track immediately
+  if (action === 'next') {
+    const nextName = document.getElementById('np-next-name')?.textContent;
+    if (nextName) {
+      document.getElementById('np-title').textContent = nextName.split(' - ').pop() || nextName;
+      const parts = nextName.split(' - ');
+      if (parts.length >= 2) {
+        document.getElementById('np-artist').textContent = parts[0];
+      }
+    }
+    document.getElementById('np-pos').textContent = '0:00';
+    document.getElementById('progress-fill').style.width = '0%';
+    state.isPlaying = true;
+    document.getElementById('btn-playpause').innerHTML =
+      '<span class="material-symbols-outlined">pause</span>';
+    // Reset lyrics for new track
+    state._lastLyricsKey = '';
+    state._lrcLines = null;
+    state._lastLrcIdx = -1;
+    const lyCard = document.getElementById('lyrics-card');
+    const lyText = document.getElementById('lyrics-text');
+    if (lyCard && lyText) {
+      lyText.innerHTML = '<span style="color:var(--dim)">Loading lyrics...</span>';
+      lyCard.style.display = '';
+    }
+  }
+
+  if (action === 'previous') {
+    document.getElementById('np-pos').textContent = '0:00';
+    document.getElementById('progress-fill').style.width = '0%';
+    // Reset lyrics for new track
+    state._lastLyricsKey = '';
+    state._lrcLines = null;
+    state._lastLrcIdx = -1;
+    const lyCard = document.getElementById('lyrics-card');
+    const lyText = document.getElementById('lyrics-text');
+    if (lyCard && lyText) {
+      lyText.innerHTML = '<span style="color:var(--dim)">Loading lyrics...</span>';
+      lyCard.style.display = '';
+    }
+  }
+
+  await maControl(action, state.currentQueueId);
+  // Quick poll to get the real track info
+  setTimeout(pollMaQueue, 500);
+  setTimeout(pollSnapcast, 1000);
 }
 
 /** Toggle play/pause. */
@@ -112,9 +186,9 @@ export function handleSnapcastStatus(d) {
       : '<span class="material-symbols-outlined">play_arrow</span>';
   }
   const btn = document.getElementById('btn-playpause');
-  btn.disabled = !state.currentStreamId;
-  document.getElementById('btn-prev').disabled = !c.canGoPrevious && !state.currentStreamId;
-  document.getElementById('btn-next').disabled = !c.canGoNext && !state.currentStreamId;
+  btn.disabled = !state.currentQueueId;
+  document.getElementById('btn-prev').disabled = !state.currentQueueId;
+  document.getElementById('btn-next').disabled = !state.currentQueueId;
 
   let html = d.streams.filter(s => s.metadata).map(s =>
     `<span class="badge ${s.status === 'playing' ? 'badge-green' : 'badge-orange'}">${s.status}</span> `
@@ -221,6 +295,23 @@ export async function pollMaQueue() {
       if (d.queue_total > 0) {
         qpEl.textContent = (d.queue_index + 1) + '/' + d.queue_total;
       } else { qpEl.textContent = ''; }
+      // Store current queue item ID for queue highlighting
+      const newItemId = d.queue_item_id || '';
+      if (newItemId && newItemId !== state.currentQueueItemId) {
+        state.currentQueueItemId = newItemId;
+        // Update queue highlight in-place without full reload
+        const qList = document.getElementById('queue-list');
+        if (qList && state.queueVisible) {
+          qList.querySelectorAll('.q-item').forEach(el => {
+            const isNow = el.dataset.id === newItemId;
+            el.classList.toggle('q-current', isNow);
+            const icon = el.querySelector('.q-play .material-symbols-outlined');
+            if (icon) icon.textContent = isNow ? 'equalizer' : 'play_arrow';
+          });
+        }
+      } else {
+        state.currentQueueItemId = newItemId;
+      }
 
       // Shuffle
       const shEl = document.getElementById('np-shuffle');
@@ -254,14 +345,51 @@ export async function pollMaQueue() {
         nxEl.style.display = '';
       } else { nxEl.style.display = 'none'; }
 
-      // Lyrics
+      // Lyrics — fetch asynchronously, parse LRC for synced display
       const lyCard = document.getElementById('lyrics-card');
       const lyText = document.getElementById('lyrics-text');
-      const lyrics = d.lyrics || '';
-      if (lyrics) {
-        lyText.textContent = lyrics.replace(/\[\d+:\d+[\.\:]\d+\]/g, '').trim();
+      const npArtist = document.getElementById('np-artist').textContent.trim();
+      const npTitle = document.getElementById('np-title').textContent.trim();
+      const lyKey = `${npArtist}|${npTitle}`;
+      if (lyKey !== state._lastLyricsKey && npArtist && npTitle && npTitle !== 'Nothing playing') {
+        state._lastLyricsKey = lyKey;
+        state._lrcLines = null;
+        state._lastLrcIdx = -1;
+        // Show loading state
+        lyText.innerHTML = '<span style="color:var(--dim)">Loading lyrics...</span>';
         lyCard.style.display = '';
-      } else { lyCard.style.display = 'none'; }
+        fetchLyrics(npArtist, npTitle).then(ld => {
+          // Only apply if still the same track
+          if (state._lastLyricsKey !== lyKey) return;
+          const ly = ld.lyrics || '';
+          if (!ly) { lyCard.style.display = 'none'; return; }
+          // Parse LRC timestamps
+          const lines = [];
+          for (const raw of ly.split('\n')) {
+            const m = raw.match(/^\[(\d+):(\d+)[\.\:](\d+)\](.*)/);
+            if (m) {
+              const secs = parseInt(m[1]) * 60 + parseInt(m[2]) + parseInt(m[3]) / 100;
+              lines.push({ time: secs, text: m[4].trim() });
+            }
+          }
+          if (lines.length > 0) {
+            // Filter out empty/whitespace-only lines
+            const filtered = lines.filter(l => l.text && l.text.trim());
+            state._lrcLines = filtered;
+            lyText.innerHTML = filtered
+              .map((l, i) =>
+                `<span class="lrc-line" data-time="${l.time}" data-idx="${i}">${l.text}</span>`
+              ).join('');
+          } else {
+            state._lrcLines = null;
+            const plain = ly.replace(/\[\d+:\d+[\.\:]\d+\]/g, '').trim();
+            lyText.innerHTML = plain.split('\n').filter(l => l.trim()).map(l =>
+              `<span class="lrc-line">${l}</span>`
+            ).join('');
+          }
+          lyCard.style.display = '';
+        }).catch(() => { if (state._lastLyricsKey === lyKey) lyCard.style.display = 'none'; });
+      }
 
       // Album art background — fallback to MA image if Snapcast didn't provide one
       if (d.image_url && d.image_url !== state.lastImageUrl && !state.lastImageUrl) {

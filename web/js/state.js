@@ -29,4 +29,8 @@ export const state = {
   // Timestamp (ms) until which play-state SSE updates should be ignored,
   // set after a user-initiated playback control action.
   playStateLockUntil: 0,
+  // Current queue item ID for queue highlighting
+  currentQueueItemId: '',
+  // "Don't Stop the Music" auto-fill mode
+  autoplayEnabled: false,
 };

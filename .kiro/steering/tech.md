@@ -42,6 +42,9 @@
 - **Snapcast JSON-RPC** (HTTP POST to port 1780) — playback control, client status
 - **Music Assistant WebSocket** (port 8095) — real-time queue/player events via SSE relay
 - **Music Assistant HTTP API** (port 8095) — queue items, track metadata, image proxy
+- **LRCLIB API** (`lrclib.net`) — synced lyrics (free, no API key needed)
+- **Last.fm API** (`ws.audioscrobbler.com`) — similar tracks/artists for recommendations
+- **OpenRouter API** (`openrouter.ai`) — LLM curation of recommendations (Gemini Flash Lite default)
 - **Server-Sent Events (SSE)** — two endpoints: `/api/ma/events` (MA events) and `/api/fft/stream` (cava FFT)
 - **D-Bus / bluetoothctl** — Bluetooth pairing, connect, disconnect
 - **PipeWire CLI** (`wpctl`, `pw-dump`, `pw-cli`) — audio sink control, codec info

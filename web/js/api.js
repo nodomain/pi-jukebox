@@ -240,7 +240,21 @@ export function fetchAirplayStatus() {
 }
 
 
+/** Fetch lyrics separately (non-blocking). */
+export function fetchLyrics(artist, title) {
+  return fetch(`/api/ma/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`).then(r => r.json());
+}
+
 /** Fetch Spotify Connect status. */
 export function fetchSpotifyStatus() {
   return fetch('/api/spotify/status').then(r => r.json());
+}
+
+/** Control MA playback directly (play/pause/next/previous/seek). */
+export function maControl(action, queueId, extra = {}) {
+  return fetch('/api/ma/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, queue_id: queueId, ...extra }),
+  }).then(r => r.json());
 }
