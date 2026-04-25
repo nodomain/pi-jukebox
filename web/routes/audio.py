@@ -165,10 +165,10 @@ def audio_eq_set():
 ]
 """)
 
-    # Restart PipeWire to apply the new config, then restart Snapclient
-    # (PipeWire restart kills the Pulse connection that Snapclient uses)
-    run("systemctl --user restart pipewire pipewire-pulse wireplumber", timeout=10)
-    run("sleep 2 && sudo systemctl restart snapclient", timeout=15)
+    # Restart only pipewire (not pulse/wireplumber) to reload the config.
+    # WirePlumber and PulseAudio reconnect automatically, Snapclient
+    # keeps its connection. Brief ~2s gap while BT sink re-appears.
+    run("systemctl --user restart pipewire", timeout=10)
 
     return jsonify({
         "preset": preset,
