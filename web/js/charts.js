@@ -81,7 +81,9 @@ let sysChart, cpuChart, wifiChart, loadChart, trafficChart, sdChart, jitterChart
 export function initCharts() {
   sysChart = makeChart('chart-system', [ds('Temp °C', '#ff9800'), ds('Mem %', '#4a9eff')], { min: 0, max: 100 });
   cpuChart = makeChart('chart-cpu', [ds('MHz', '#4caf50')], { min: 0 });
-  wifiChart = makeChart('chart-wifi', [ds('dBm', '#4a9eff')]);
+  wifiChart = makeChart('chart-wifi', [ds('dBm', '#4a9eff')], {
+    reverse: true, min: -90, max: -30,
+  });
   loadChart = makeChart('chart-load', [ds('1m', '#4a9eff'), ds('5m', '#4caf50'), ds('15m', '#ff9800')], { min: 0 });
   trafficChart = makeChart('chart-traffic', [ds('RX', '#4caf50'), ds('TX', '#ff9800')], { min: 0 });
   sdChart = makeChart('chart-sd', [ds('Writes', '#f44336')], { min: 0 });
@@ -123,6 +125,13 @@ export function handleStats(d) {
   const memPct = d.mem_total_kb ? Math.round(d.mem_used_kb / d.mem_total_kb * 100) : 0;
   document.getElementById('mem').textContent = memPct + '%';
   document.getElementById('wifi-signal').textContent = d.wifi.signal || '—';
+  // Color-code the signal strength
+  const wifiEl = document.getElementById('wifi-signal');
+  const sigVal = parseFloat(d.wifi.signal) || -90;
+  if (sigVal > -50) wifiEl.style.color = 'var(--green)';
+  else if (sigVal > -65) wifiEl.style.color = 'var(--accent)';
+  else if (sigVal > -75) wifiEl.style.color = 'var(--orange)';
+  else wifiEl.style.color = 'var(--red)';
   // WiFi details
   const wifiDetail = document.getElementById('wifi-detail');
   if (wifiDetail) {
