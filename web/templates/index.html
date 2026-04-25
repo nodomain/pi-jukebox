@@ -43,6 +43,7 @@
         <button id="np-repeat" onclick="toggleRepeat()" style="display:none" title="Repeat"><span class="material-symbols-outlined">repeat</span></button>
         <button id="btn-favorite" onclick="toggleFavorite()" title="Favorite"><span class="material-symbols-outlined">favorite</span></button>
         <button id="btn-sleep" onclick="showSleepMenu()" title="Sleep Timer"><span class="material-symbols-outlined">bedtime</span><span id="sleep-timer-status" style="font-size:0.6em; display:none; margin-left:2px"></span></button>
+        <button id="btn-autoplay" onclick="toggleAutoplay()" title="Don't Stop the Music: OFF" style="opacity:0.3; font-size:1.2em; font-weight:bold">∞</button>
       </div>
       <div class="np-progress">
         <span id="np-pos">0:00</span>
@@ -94,13 +95,7 @@
   </div>
 </div>
 
-<!-- Lyrics -->
-<div class="card" id="lyrics-card" style="display:none">
-  <h2>Lyrics</h2>
-  <pre id="lyrics-text" style="white-space:pre-wrap; font-size:0.8em; color:var(--dim); max-height:200px; overflow-y:auto; margin:0; font-family:inherit; line-height:1.6"></pre>
-</div>
-
-<!-- Search -->
+<!-- Search + AI Recommendations -->
 <div class="card" id="search-card">
   <div style="display:flex; gap:8px; align-items:center">
     <span class="material-symbols-outlined" style="color:var(--dim)">search</span>
@@ -111,9 +106,15 @@
     <button class="chip" data-filter="track">Tracks</button>
     <button class="chip" data-filter="album">Albums</button>
     <button class="chip" data-filter="playlist">Playlists</button>
+    <button class="chip chip-ai" data-filter="ai">✨ AI</button>
+    <button class="secondary" id="btn-add-all" style="display:none; padding:4px 10px; font-size:0.75em; margin-left:auto" onclick="addAllResults()">+ All</button>
   </div>
-  <div id="search-results" style="max-height:300px; overflow-y:auto; display:none"></div>
+  <div id="search-status" style="color:var(--dim); font-size:0.8em; padding:4px 0; display:none"></div>
+  <div id="search-results" style="max-height:400px; overflow-y:auto; display:none"></div>
 </div>
+
+<!-- Queue + Lyrics (side by side on desktop) -->
+<div class="queue-lyrics-grid">
 
 <!-- Queue Browser -->
 <div class="card" id="queue-card" style="display:none">
@@ -124,7 +125,15 @@
       <button onclick="clearQueue()" class="danger" style="padding:4px 10px; font-size:0.75em">Clear</button>
     </div>
   </div>
-  <div id="queue-list" style="max-height:400px; overflow-y:auto; display:none"></div>
+  <div id="queue-list" style="max-height:500px; overflow-y:auto; display:none"></div>
+</div>
+
+<!-- Lyrics -->
+<div class="card" id="lyrics-card" style="display:none">
+  <h2>Lyrics</h2>
+  <div id="lyrics-text" style="max-height:500px; overflow-y:auto; margin:0; line-height:1.5"></div>
+</div>
+
 </div>
 
 <!-- Recently Played -->

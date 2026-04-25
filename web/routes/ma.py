@@ -72,14 +72,19 @@ def _ws_handle_message(msg):
     ):
         data = msg.get("data", {})
         if event == "queue_updated":
-            with ma_state["lock"]:
-                ma_state["queue"] = data
+            # Only cache updates for the Jukebox queue
+            qid = data.get("queue_id", "")
+            if qid == "ma_jukebox" or "jukebox" in qid.lower():
+                with ma_state["lock"]:
+                    ma_state["queue"] = data
         _ws_broadcast(event, data)
 
     result = msg.get("result")
     if result and isinstance(result, list):
+        # From player_queues/all response: find the Jukebox queue
         for queue_obj in result:
-            if queue_obj.get("state") == "playing":
+            qid = queue_obj.get("queue_id", "")
+            if qid == "ma_jukebox" or "jukebox" in qid.lower():
                 with ma_state["lock"]:
                     ma_state["queue"] = queue_obj
                 _ws_broadcast("queue_updated", queue_obj)
@@ -223,9 +228,10 @@ def ma_events():
 
 
 def _fetch_active_queue():
-    """Fetch the active playing queue from MA via HTTP.
+    """Fetch the Jukebox player queue from MA via HTTP.
 
-    Always fetches fresh data to avoid stale timing info from WS cache.
+    Filters for the ``ma_jukebox`` queue specifically so we never
+    accidentally show another player's queue (e.g. a browser or TV).
 
     Returns:
         Queue dict if found, empty dict if no active queue, or None if
@@ -244,14 +250,17 @@ def _fetch_active_queue():
         queues = json.loads(raw)
         if isinstance(queues, dict):
             queues = queues.get("result", [])
-        # Prefer playing queue, fall back to first available
-        fallback = None
+        # Find the Jukebox queue specifically
         for candidate in queues:
-            if candidate.get("state") == "playing":
+            qid = candidate.get("queue_id", "")
+            if qid == "ma_jukebox" or "jukebox" in qid.lower():
                 return candidate
-            if fallback is None:
-                fallback = candidate
-        return fallback or {}
+        # Fallback: any queue whose display_name contains "jukebox"
+        for candidate in queues:
+            name = candidate.get("display_name", "").lower()
+            if "jukebox" in name:
+                return candidate
+        return {}
     except (json.JSONDecodeError, TypeError):
         pass
     return {}
@@ -281,35 +290,63 @@ def _parse_queue_quality(audio_format):
     return quality, codec, codec_type, sample_rate, bits
 
 
-def _fetch_lyrics(track_id, track_uri):
-    """Fetch lyrics for a track from MA.
+def _fetch_lyrics(track_id, track_uri, artist="", title=""):
+    """Fetch lyrics from LRCLIB (free, no API key needed).
+
+    Falls back to MA metadata if LRCLIB has no results.
 
     Args:
-        track_id: MA track item ID.
-        track_uri: MA track URI (used to determine provider).
+        track_id: MA track item ID (for MA fallback).
+        track_uri: MA track URI (for MA fallback).
+        artist: Artist name for LRCLIB lookup.
+        title: Track title for LRCLIB lookup.
 
     Returns:
         Lyrics string, or empty string if unavailable.
     """
-    provider = "library"
-    if "://" in track_uri:
-        provider = track_uri.split("://")[0]
-    ly_raw = run(
-        f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
-        f"-H 'Content-Type: application/json' "
-        f"-H 'Authorization: Bearer {MA_TOKEN}' "
-        f"-d '{{\"message_id\":\"2\","
-        f"\"command\":\"music/tracks/get\","
-        f"\"args\":{{\"item_id\":\"{track_id}\","
-        f"\"provider_instance_id_or_domain\":\"{provider}\"}}}}'",
-        timeout=3,
-    )
-    try:
-        ly_data = json.loads(ly_raw) if ly_raw else {}
-        ly_meta = ly_data.get("metadata") or {}
-        return ly_meta.get("lrc_lyrics") or ly_meta.get("lyrics") or ""
-    except (json.JSONDecodeError, TypeError):
-        return ""
+    # Try LRCLIB first (fast, reliable, free)
+    if artist and title:
+        try:
+            url = (
+                "https://lrclib.net/api/get"
+                f"?artist_name={urllib.request.quote(artist)}"
+                f"&track_name={urllib.request.quote(title)}"
+            )
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "JukeboxPi/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            synced = data.get("syncedLyrics") or ""
+            plain = data.get("plainLyrics") or ""
+            if synced or plain:
+                return synced or plain
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    # Fallback: try MA metadata
+    if track_id and track_uri:
+        provider = "library"
+        if "://" in track_uri:
+            provider = track_uri.split("://")[0]
+        ly_raw = run(
+            f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
+            f"-H 'Content-Type: application/json' "
+            f"-H 'Authorization: Bearer {MA_TOKEN}' "
+            f"-d '{{\"message_id\":\"2\","
+            f"\"command\":\"music/tracks/get\","
+            f"\"args\":{{\"item_id\":\"{track_id}\","
+            f"\"provider_instance_id_or_domain\":\"{provider}\"}}}}'",
+            timeout=3,
+        )
+        try:
+            ly_data = json.loads(ly_raw) if ly_raw else {}
+            ly_meta = ly_data.get("metadata") or {}
+            return ly_meta.get("lrc_lyrics") or ly_meta.get("lyrics") or ""
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return ""
 
 
 # --- Volume endpoints ---
@@ -387,8 +424,10 @@ def ma_queue():
         lyrics = ""
         track_id = media_item.get("item_id")
         track_uri = media_item.get("uri", "")
-        if track_id and track_uri:
-            lyrics = _fetch_lyrics(track_id, track_uri)
+        # Extract artist name for LRCLIB lookup
+        artists = media_item.get("artists") or []
+        artist_name = artists[0].get("name", "") if artists else ""
+        track_title = media_item.get("name", "")
 
         return jsonify({
             "elapsed_time": active_q.get("elapsed_time", 0),
@@ -405,6 +444,7 @@ def ma_queue():
             "bit_depth": bits,
             "queue_id": active_q.get("queue_id", ""),
             "queue_index": active_q.get("current_index", 0),
+            "queue_item_id": current_item.get("queue_item_id", ""),
             "queue_total": active_q.get("items", 0),
             "shuffle": active_q.get("shuffle_enabled", False),
             "repeat": active_q.get("repeat_mode", "off"),
@@ -459,7 +499,7 @@ def ma_queue_action():
     cmd_map = {
         "delete": ("player_queues/delete_item", {
             "queue_id": queue_id,
-            "queue_item_id": body.get("queue_item_id", ""),
+            "item_id_or_index": body.get("queue_item_id", ""),
         }),
         "move": ("player_queues/move_item", {
             "queue_id": queue_id,
@@ -478,6 +518,10 @@ def ma_queue_action():
         "repeat": ("player_queues/repeat", {
             "queue_id": queue_id,
             "repeat_mode": body.get("mode", "off"),
+        }),
+        "dont_stop_the_music": ("player_queues/dont_stop_the_music", {
+            "queue_id": queue_id,
+            "dont_stop_the_music_enabled": body.get("enabled", False),
         }),
     }
     if action not in cmd_map:
@@ -742,3 +786,68 @@ def ma_playlist_tracks():
             "track_number": i + 1,
         })
     return jsonify({"items": items})
+
+
+# --- Playback control (direct MA API) ---
+
+
+@ma_bp.route("/api/ma/control", methods=["POST"])
+def ma_control():
+    """Control playback directly via MA player queue commands.
+
+    This bypasses Snapcast Stream.Control and talks to MA directly,
+    which works even when the Snapcast stream is idle.
+
+    Request JSON:
+        action (str): play, pause, next, previous, seek
+        queue_id (str): MA queue ID (e.g. 'ma_jukebox')
+        position (float, optional): seek position in seconds
+    """
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    body = request.json or {}
+    action = body.get("action", "")
+    queue_id = body.get("queue_id", "")
+    if not queue_id:
+        return jsonify({"error": "Missing queue_id"}), 400
+
+    cmd_map = {
+        "play": "player_queues/resume",
+        "pause": "player_queues/pause",
+        "next": "player_queues/next",
+        "previous": "player_queues/previous",
+        "seek": "player_queues/seek",
+    }
+    command = cmd_map.get(action)
+    if not command:
+        return jsonify({"error": f"Unknown action: {action}"}), 400
+
+    args = {"queue_id": queue_id}
+    if action == "seek" and "position" in body:
+        args["position"] = int(body["position"])
+
+    result = ma_rpc(command, args)
+    return jsonify({"result": result or "ok"})
+
+
+# --- Lyrics (separate endpoint to avoid blocking queue) ---
+
+
+@ma_bp.route("/api/ma/lyrics")
+def ma_lyrics():
+    """Fetch lyrics for a track via LRCLIB (with MA fallback).
+
+    Query params:
+        artist: Artist name
+        title: Track title
+        item_id: MA track item ID (optional, for MA fallback)
+        uri: MA track URI (optional, for MA fallback)
+    """
+    artist = request.args.get("artist", "")
+    title = request.args.get("title", "")
+    item_id = request.args.get("item_id", "")
+    uri = request.args.get("uri", "")
+    if not artist and not title:
+        return jsonify({"lyrics": ""})
+    lyrics = _fetch_lyrics(item_id, uri, artist, title)
+    return jsonify({"lyrics": lyrics})

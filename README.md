@@ -14,6 +14,8 @@ Designed for battery/portable use — safe to pull power at any time.
 - **Zero SD card writes** — tmpfs mounts + volatile journal during normal operation
 - **WiFi roaming** — auto-rescans when signal drops below -70 dBm
 - **Web dashboard** — Now Playing, playback controls, queue browser, live system charts, BT/service management
+- **AI recommendations** — hybrid Last.fm + LLM suggestions, mood-aware, validated against your library
+- **Last.fm scrobbling** — auto-scrobbles played tracks to build your listening profile
 - **Fully reproducible** — two scripts to go from fresh Pi OS to streaming
 
 ## Architecture
@@ -54,6 +56,10 @@ Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 - **Live Charts** — Chart.js graphs for temp, CPU, WiFi, load, traffic, SD writes, Snapcast buffer jitter
 - **Bluetooth Management** — scan, connect, disconnect
 - **Service Controls** — restart snapclient, BT watchdog, reboot
+- **AI Recommendations** — Last.fm similar tracks curated by LLM, integrated in search with ✨ AI chip
+- **Last.fm Scrobbling** — via MA plugin, auto-scrobbles all played tracks
+- **Synced Lyrics** — LRCLIB integration, highlighted current line with auto-scroll
+- **"Don't Stop the Music"** — ∞ button, uses MA native feature to auto-fill queue
 - **Theme Toggle** — dark/light mode
 
 ## Prerequisites
@@ -189,9 +195,10 @@ make ssh       — open SSH session
     │   ├── main.js           # Entry point
     │   ├── state.js          # Shared state
     │   ├── api.js            # Fetch wrappers
-    │   ├── player.js         # Now playing, controls, volume
-    │   ├── queue.js          # Queue browser
-    │   ├── browse.js         # Search, recently played, playlists
+    │   ├── player.js         # Now playing, controls, volume, synced lyrics
+    │   ├── queue.js          # Queue browser with optimistic UI
+    │   ├── browse.js         # Search, AI recommendations, recently played, playlists
+    │   ├── autoplay.js       # "Don't Stop the Music" toggle (MA native)
     │   ├── charts.js         # Chart.js setup
     │   ├── fft.js            # FFT visualizer
     │   ├── system.js         # BT, services
@@ -220,6 +227,52 @@ make ssh       — open SSH session
 | Clipping limiter | ✅ | Prevents distortion |
 | Normalization target | -14 LUFS | Louder than default -17 for BT speakers |
 | Smart Fades | Standard Crossfade | Intelligent transitions between tracks |
+
+## AI Recommendations
+
+The dashboard includes an AI-powered recommendation feature that suggests similar tracks based on what's currently playing. It uses a hybrid approach:
+
+1. **Last.fm** provides similar tracks and artists (collaborative filtering from millions of listeners)
+2. **LLM** (via OpenRouter) curates the results, optionally filtered by a mood/vibe prompt
+3. **Music Assistant** validates that each suggestion is actually playable in your library
+
+### Setup
+
+1. **Last.fm API Key** (free) — create one at https://www.last.fm/api/account/create
+2. **OpenRouter API Key** — get one at https://openrouter.ai/keys
+
+Add both to `.env`:
+
+```bash
+LASTFM_API_KEY=your_lastfm_api_key
+LASTFM_SHARED_SECRET=your_lastfm_shared_secret
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_MODEL=google/gemini-3.1-flash-lite   # optional, see model comparison below
+```
+
+### Last.fm Scrobbling
+
+Scrobbling is handled by the [Music Assistant Last.fm plugin](https://www.music-assistant.io/plugins/lastfm_scrobble/), not by the Jukebox dashboard. Install it in MA under Settings → Plugins and configure your Last.fm credentials there. This scrobbles all tracks played through MA regardless of whether the dashboard is open.
+
+The feature works in three modes:
+- **Both keys** — full hybrid (Last.fm data + LLM curation). Best results.
+- **Last.fm only** — returns raw similar tracks without LLM filtering. Still good.
+- **OpenRouter only** — LLM generates recommendations from its own knowledge. Works but less reliable.
+
+### OpenRouter Model Comparison
+
+The task is simple: read ~20 track suggestions, pick the best 10, return JSON. Any model handles this, so optimize for speed and cost.
+
+| Model | Cost (in/out per 1M) | Speed | Cost per request | Notes |
+|---|---|---|---|---|
+| **Gemini 3.1 Flash Lite** ⭐ | $0.25 / $1.50 | ⚡⚡⚡ | ~$0.0005 | Fastest, great JSON output. Default pick. |
+| **Grok 4.1 Fast** | $0.20 / $0.50 | ⚡⚡⚡ | ~$0.0002 | Cheapest paid, 2M context (overkill here) |
+| **DeepSeek V4 Flash** | $0.14 / $0.28 | ⚡⚡ | ~$0.0001 | Cheapest overall, good quality |
+| **Gemini 3 Flash** | $0.50 / $3.00 | ⚡⚡ | ~$0.001 | Solid all-rounder |
+| **Claude Sonnet 4.6** | $3 / $15 | ⚡ | ~$0.005 | Best music knowledge, 10x pricier |
+| **GPT-5.4** | $3 / $15 | ⚡ | ~$0.005 | Excellent but overkill for this task |
+
+At ~1K tokens per request, even 50 recommendations/day cost under 3 cents with Flash Lite. Use a premium model only if you want better curation of obscure genres.
 
 ## Troubleshooting
 

@@ -16,7 +16,8 @@ import { toggleQueue, clearQueue, toggleShuffle, toggleRepeat, initQueueEvents }
 import { connectSSE } from './sse.js';
 import { initFFT } from './fft.js';
 import { pollBt, btScan, btDisconnect, svcAction, initSystemEvents } from './system.js';
-import { initSearch, loadRecent, loadPlaylists, toggleRecent, togglePlaylists, playRecent, playPlaylist } from './browse.js';
+import { initSearch, loadRecent, loadPlaylists, toggleRecent, togglePlaylists, playRecent, playPlaylist, addAllResults } from './browse.js';
+import { toggleAutoplay, initAutoplay } from './autoplay.js';
 
 // Re-export state for any module that still imports from main
 export { state } from './state.js';
@@ -40,6 +41,8 @@ window.toggleRecent = toggleRecent;
 window.togglePlaylists = togglePlaylists;
 window.playRecent = playRecent;
 window.playPlaylist = playPlaylist;
+window.addAllResults = addAllResults;
+window.toggleAutoplay = toggleAutoplay;
 
 /** Show/hide sleep timer menu. */
 function showSleepMenu() {
@@ -65,6 +68,7 @@ function init() {
   initSystemEvents();
   initFFT();
   initSearch();
+  initAutoplay();
   connectSSE();
 
   // Initial data fetch (SSE will take over after connection)

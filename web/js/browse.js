@@ -1,28 +1,43 @@
 /**
- * Search, recently played, and playlist browser.
+ * Search, AI recommendations, recently played, and playlist browser.
  * @module browse
  */
 
 import { state } from './state.js';
 import { maSearch, fetchRecentlyPlayed, fetchPlaylists, maPlayMedia, fetchAlbumTracks, fetchPlaylistTracks } from './api.js';
 import { fmtTime } from './player.js';
+import { addToQueueOptimistic } from './queue.js';
 
 let searchTimeout = null;
 let recentVisible = false;
 let playlistsVisible = false;
 let searchFilter = 'track,album,playlist';
+let aiMode = false;
 
 /** Initialize search input with debounce. */
 export function initSearch() {
   const input = document.getElementById('search-input');
+  const container = document.getElementById('search-results');
+  const addAllBtn = document.getElementById('btn-add-all');
+
   input.addEventListener('input', function () {
     clearTimeout(searchTimeout);
     const q = this.value.trim();
     if (!q) {
-      document.getElementById('search-results').style.display = 'none';
+      container.style.display = 'none';
+      addAllBtn.style.display = 'none';
       return;
     }
+    if (aiMode) return; // AI mode uses Enter, not debounce
     searchTimeout = setTimeout(() => doSearch(q), 400);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && aiMode) {
+      e.preventDefault();
+      const q = this.value.trim();
+      if (q) doAiRecommend(q);
+    }
   });
 
   // Filter chips
@@ -31,26 +46,38 @@ export function initSearch() {
     if (!chip) return;
     this.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
-    searchFilter = chip.dataset.filter;
-    const q = input.value.trim();
-    if (q) doSearch(q);
+
+    if (chip.dataset.filter === 'ai') {
+      aiMode = true;
+      input.placeholder = 'Describe what you want to hear... (Enter to search)';
+      container.style.display = 'none';
+      addAllBtn.style.display = 'none';
+    } else {
+      aiMode = false;
+      searchFilter = chip.dataset.filter;
+      input.placeholder = 'Search tracks, albums, playlists...';
+      addAllBtn.style.display = 'none';
+      const q = input.value.trim();
+      if (q) doSearch(q);
+    }
   });
 
   // Event delegation for search results
-  document.getElementById('search-results').addEventListener('click', function (e) {
-    // Handle play/next/add buttons
+  container.addEventListener('click', function (e) {
     const btn = e.target.closest('[data-action]');
     if (btn) {
       const action = btn.dataset.action;
       const uri = btn.dataset.uri;
       if (!uri || !state.currentQueueId) return;
       e.stopPropagation();
-      maPlayMedia(uri, state.currentQueueId, action);
+      const name = btn.dataset.name || '';
+      const artist = btn.dataset.artist || '';
+      const dur = parseFloat(btn.dataset.dur) || 0;
+      addToQueueOptimistic(uri, name, artist, dur, action);
       btn.style.opacity = '0.3';
       setTimeout(() => { btn.style.opacity = ''; }, 500);
       return;
     }
-    // Handle album/playlist expand
     const item = e.target.closest('.search-item.expandable');
     if (item) {
       e.stopPropagation();
@@ -59,9 +86,29 @@ export function initSearch() {
   });
 }
 
-/** Perform search and render results. */
+/** Add all visible results to queue (first with play, rest with add). */
+export function addAllResults() {
+  if (!state.currentQueueId) return;
+  const btns = document.querySelectorAll('#search-results [data-action="add"]');
+  let first = true;
+  btns.forEach(btn => {
+    const uri = btn.dataset.uri;
+    if (uri) {
+      const name = btn.dataset.name || '';
+      const artist = btn.dataset.artist || '';
+      const dur = parseFloat(btn.dataset.dur) || 0;
+      addToQueueOptimistic(uri, name, artist, dur, first ? 'play' : 'add');
+      btn.style.opacity = '0.3';
+      first = false;
+    }
+  });
+}
+
+/** Perform library search and render results. */
 async function doSearch(query) {
   const container = document.getElementById('search-results');
+  const addAllBtn = document.getElementById('btn-add-all');
+  addAllBtn.style.display = 'none';
   container.style.display = '';
   container.innerHTML = '<div style="color:var(--dim);padding:8px">Searching...</div>';
   try {
@@ -79,6 +126,85 @@ async function doSearch(query) {
     container.innerHTML = all.map(item => renderSearchItem(item)).join('');
   } catch (e) {
     container.innerHTML = '<div style="color:var(--dim);padding:8px">Search failed</div>';
+  }
+}
+
+/** Perform AI recommendation via SSE stream. */
+async function doAiRecommend(prompt) {
+  const container = document.getElementById('search-results');
+  const addAllBtn = document.getElementById('btn-add-all');
+  const statusEl = document.getElementById('search-status');
+
+  // Get current track for context
+  let artist = document.getElementById('np-artist').textContent.trim();
+  let track = document.getElementById('np-title').textContent.trim();
+  if (!artist || !track || track === '—' || track === 'Nothing playing') {
+    try {
+      const q = await fetch('/api/ma/queue').then(r => r.json());
+      if (q.name) {
+        const parts = q.name.split(' - ');
+        if (parts.length >= 2) {
+          artist = parts[0].trim();
+          track = parts.slice(1).join(' - ').trim();
+        } else { track = q.name; artist = ''; }
+      }
+    } catch { /* ignore */ }
+  }
+
+  container.style.display = '';
+  container.innerHTML = '';
+  statusEl.textContent = 'Connecting...';
+  statusEl.style.display = '';
+  addAllBtn.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artist: artist || 'Various', track: track || 'Unknown', mood: prompt }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+
+      for (const part of parts) {
+        let event = 'message';
+        let data = '';
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) event = line.slice(7);
+          else if (line.startsWith('data: ')) data = line.slice(6);
+        }
+        if (!data) continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (event === 'status') {
+            statusEl.textContent = parsed;
+          } else if (event === 'track') {
+            container.insertAdjacentHTML('beforeend', renderSearchItem({
+              ...parsed, type: 'track',
+            }));
+          } else if (event === 'done') {
+            const total = parsed.total || 0;
+            statusEl.textContent = total > 0
+              ? `✨ ${total} recommendation${total !== 1 ? 's' : ''}`
+              : 'No recommendations found';
+            if (total > 0) addAllBtn.style.display = '';
+            setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+          }
+        } catch { /* skip */ }
+      }
+    }
+  } catch (e) {
+    statusEl.textContent = 'Recommendation failed';
   }
 }
 
@@ -107,17 +233,17 @@ function renderSearchItem(item) {
   const expandIcon = isExpandable ? '<span class="s-expand material-symbols-outlined" style="font-size:18px;color:var(--dim)">expand_more</span>' : '';
   const pIcon = providerIcon(item.uri);
 
-  return `<div class="search-item${isExpandable ? ' expandable' : ''}"${isExpandable ? ` data-expand-type="${item.type}" data-item-id="${itemId}" data-provider="${provider}"` : ''}>
+  return `<div class="search-item${isExpandable ? ' expandable' : ''}"${isExpandable ? ` data-expand-type="${item.type}" data-item-id="${itemId}" data-provider="${provider}"` : ''} style="animation:fadeIn .3s">
     ${thumb}
     <div class="s-info">
       <div class="s-name">${expandIcon}${item.name}</div>
-      <div class="s-artist">${item.artist || ''} ${pIcon}<span class="s-type">${item.type}</span></div>
+      <div class="s-artist">${item.artist || ''} ${pIcon}${item.type !== 'track' ? `<span class="s-type">${item.type}</span>` : ''}</div>
     </div>
     ${dur ? `<span style="color:var(--dim);font-size:0.75em">${dur}</span>` : ''}
     <span class="s-actions">
-      <button data-action="play" data-uri="${item.uri}" title="Play now">▶</button>
-      <button data-action="next" data-uri="${item.uri}" title="Play next">⏭</button>
-      <button data-action="add" data-uri="${item.uri}" title="Add to queue">+</button>
+      <button data-action="play" data-uri="${item.uri}" data-name="${(item.name || '').replace(/"/g, '&quot;')}" data-artist="${(item.artist || '').replace(/"/g, '&quot;')}" data-dur="${item.duration || 0}" title="Play now">▶</button>
+      <button data-action="next" data-uri="${item.uri}" data-name="${(item.name || '').replace(/"/g, '&quot;')}" data-artist="${(item.artist || '').replace(/"/g, '&quot;')}" data-dur="${item.duration || 0}" title="Play next">⏭</button>
+      <button data-action="add" data-uri="${item.uri}" data-name="${(item.name || '').replace(/"/g, '&quot;')}" data-artist="${(item.artist || '').replace(/"/g, '&quot;')}" data-dur="${item.duration || 0}" title="Add to queue">+</button>
     </span>
   </div>`;
 }
@@ -125,7 +251,6 @@ function renderSearchItem(item) {
 /** Expand an album/playlist to show its tracks. */
 async function expandAlbum(el) {
   const icon = el.querySelector('.s-expand');
-  // Toggle off if already expanded
   const existing = el.nextElementSibling;
   if (existing && existing.classList.contains('album-tracks')) {
     existing.remove();
@@ -162,9 +287,9 @@ async function expandAlbum(el) {
         <span class="at-name">${t.name}</span>
         <span class="at-dur">${fmtTime(t.duration)}</span>
         <span class="s-actions">
-          <button data-action="play" data-uri="${t.uri}" title="Play">▶</button>
-          <button data-action="next" data-uri="${t.uri}" title="Next">⏭</button>
-          <button data-action="add" data-uri="${t.uri}" title="Add">+</button>
+          <button data-action="play" data-uri="${t.uri}" data-name="${(t.name || '').replace(/"/g, '&quot;')}" data-artist="${(t.artist || '').replace(/"/g, '&quot;')}" data-dur="${t.duration || 0}" title="Play">▶</button>
+          <button data-action="next" data-uri="${t.uri}" data-name="${(t.name || '').replace(/"/g, '&quot;')}" data-artist="${(t.artist || '').replace(/"/g, '&quot;')}" data-dur="${t.duration || 0}" title="Next">⏭</button>
+          <button data-action="add" data-uri="${t.uri}" data-name="${(t.name || '').replace(/"/g, '&quot;')}" data-artist="${(t.artist || '').replace(/"/g, '&quot;')}" data-dur="${t.duration || 0}" title="Add">+</button>
         </span>
       </div>`
     ).join('');
@@ -196,21 +321,18 @@ export async function loadRecent() {
   }
 }
 
-/** Toggle recently played visibility. */
 export function toggleRecent() {
   recentVisible = !recentVisible;
   document.getElementById('recent-list').style.display = recentVisible ? '' : 'none';
   document.getElementById('btn-recent-toggle').textContent = recentVisible ? 'Hide' : 'Show';
 }
 
-/** Play a recently played item. */
 export function playRecent(el) {
   const uri = el.dataset.uri;
   if (!uri || !state.currentQueueId) return;
   maPlayMedia(uri, state.currentQueueId, 'play');
 }
 
-/** Load and show playlists. */
 export async function loadPlaylists() {
   const card = document.getElementById('playlists-card');
   const list = document.getElementById('playlists-list');
@@ -235,14 +357,12 @@ export async function loadPlaylists() {
   }
 }
 
-/** Toggle playlists visibility. */
 export function togglePlaylists() {
   playlistsVisible = !playlistsVisible;
   document.getElementById('playlists-list').style.display = playlistsVisible ? '' : 'none';
   document.getElementById('btn-playlists-toggle').textContent = playlistsVisible ? 'Hide' : 'Show';
 }
 
-/** Play a playlist. */
 export function playPlaylist(el) {
   const uri = el.dataset.uri;
   if (!uri || !state.currentQueueId) return;

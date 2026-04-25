@@ -382,3 +382,25 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
   .pl-tile { width: 140px; }
   .pl-cover { width: 140px; height: 140px; }
 }
+
+/* Recommendation fade-in animation */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* AI chip highlight */
+.chip-ai { background: linear-gradient(135deg, #6366f1, #a855f7) !important; color: #fff !important; }
+.chip-ai.active { box-shadow: 0 0 8px rgba(139, 92, 246, 0.5); }
+
+/* Queue + Lyrics side-by-side on desktop */
+.queue-lyrics-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 768px) {
+  .queue-lyrics-grid { grid-template-columns: 1fr 1fr; }
+  .queue-lyrics-grid #queue-card { max-height: 600px; }
+  .queue-lyrics-grid #lyrics-card { max-height: 600px; }
+  .queue-lyrics-grid #lyrics-card pre { max-height: 520px; }
+  .queue-lyrics-grid #queue-list { max-height: 520px !important; }
+}
+
+/* Synced lyrics */
+.lrc-line { display: block; padding: 3px 0; transition: all 0.3s ease; color: var(--dim); font-size: 1em; line-height: 1.5; }
+.lrc-line.lrc-active { color: var(--accent); font-weight: 600; font-size: 1.1em; }
+.lrc-line.lrc-past { opacity: 0.4; }

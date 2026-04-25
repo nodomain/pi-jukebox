@@ -627,6 +627,9 @@ WorkingDirectory=/opt/jukebox
 Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
 Environment=SNAPCAST_SERVER=${SNAPCAST_SERVER}
 Environment=MA_TOKEN=${MA_TOKEN}
+Environment=LASTFM_API_KEY=${LASTFM_API_KEY:-}
+Environment=OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+Environment=OPENROUTER_MODEL=${OPENROUTER_MODEL:-google/gemini-3.1-flash-lite-preview}
 ExecStart=/usr/bin/python3 /opt/jukebox/app.py
 Restart=always
 RestartSec=5

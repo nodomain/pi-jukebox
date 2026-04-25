@@ -34,11 +34,15 @@ All three → PipeWire/PulseAudio → Bluetooth A2DP (SBC-XQ) → Speaker
 
 Flask app served on port 8080 providing:
 
-- Now Playing with album art, playback controls, progress bar, lyrics
+- Now Playing with album art, playback controls, progress bar, synced lyrics (LRCLIB)
+- AI-powered recommendations integrated in search (Last.fm + LLM hybrid, ✨ AI chip)
+- "Don't Stop the Music" mode (∞ button, uses MA native feature)
+- Last.fm scrobbling via MA plugin (not dashboard — install in MA Settings → Plugins)
 - AirPlay / Spotify Connect now-playing when those sources are active
 - FFT audio visualizer via cava
-- Queue browser with reorder/delete/shuffle/repeat
+- Queue browser with reorder/delete/shuffle/repeat, optimistic UI
 - Music search, recently played, playlists
+- Playback controls via MA API directly (not Snapcast — works even when stream is idle)
 - Three volume sliders (Music Assistant, Snapcast, PipeWire)
 - System diagnostics: CPU temp/freq, memory, WiFi signal, SD writes, throttle flags
 - Live Chart.js charts for system metrics and Snapcast buffer jitter

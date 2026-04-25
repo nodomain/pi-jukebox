@@ -4,8 +4,61 @@
  */
 
 import { state } from './state.js';
-import { fetchMaQueueItems, maQueueAction } from './api.js';
+import { fetchMaQueueItems, maQueueAction, maPlayMedia } from './api.js';
 import { fmtTime } from './player.js';
+
+/**
+ * Optimistically add a track to the queue UI and fire the API call.
+ * The item appears instantly; a background reload syncs the real state.
+ *
+ * @param {string} uri - Track URI
+ * @param {string} name - Display name
+ * @param {string} artist - Artist name
+ * @param {number} duration - Duration in seconds
+ * @param {string} option - 'add', 'next', or 'play'
+ */
+export function addToQueueOptimistic(uri, name, artist, duration, option) {
+  if (!state.currentQueueId || !uri) return;
+
+  // 1. Inject into DOM immediately if queue is visible
+  const list = document.getElementById('queue-list');
+  const countEl = document.getElementById('queue-count');
+  if (list && state.queueVisible) {
+    const currentCount = list.querySelectorAll('.q-item').length;
+    const idx = option === 'next' ? '→' : String(currentCount + 1);
+    const displayName = artist ? `${artist} - ${name}` : name;
+    const html = `<div class="q-item q-optimistic" style="animation:fadeIn .3s; opacity:0.7">
+      <span class="q-play"><span class="material-symbols-outlined">play_arrow</span></span>
+      <span class="q-idx">${idx}</span>
+      <span class="q-name">${displayName}</span>
+      <span class="q-dur">${fmtTime(duration)}</span>
+      <span class="q-actions"></span>
+    </div>`;
+    if (option === 'next') {
+      const current = list.querySelector('.q-current');
+      if (current && current.nextElementSibling) {
+        current.nextElementSibling.insertAdjacentHTML('beforebegin', html);
+      } else {
+        list.insertAdjacentHTML('beforeend', html);
+      }
+    } else {
+      list.insertAdjacentHTML('beforeend', html);
+    }
+    // Update count badge
+    if (countEl) {
+      const m = countEl.textContent.match(/\d+/);
+      if (m) countEl.textContent = `(${parseInt(m[0], 10) + 1})`;
+    }
+  }
+
+  // 2. Fire API call in background
+  maPlayMedia(uri, state.currentQueueId, option);
+
+  // 3. Sync real state after a delay
+  if (state.queueVisible) {
+    setTimeout(loadQueue, 2000);
+  }
+}
 
 /** Load and render queue items. */
 export async function loadQueue() {
@@ -17,10 +70,9 @@ export async function loadQueue() {
       list.innerHTML = '<div style="color:var(--dim);padding:8px">Empty</div>';
       return;
     }
-    const qpText = document.getElementById('np-queue-pos').textContent;
-    const curIdx = qpText ? parseInt(qpText.split('/')[0], 10) - 1 : -1;
+    const curItemId = state.currentQueueItemId || '';
     list.innerHTML = d.items.map((item, i) => {
-      const isCurrent = i === curIdx;
+      const isCurrent = item.queue_item_id === curItemId;
       const dur = fmtTime(item.duration);
       return `<div class="q-item${isCurrent ? ' q-current' : ''}" data-action="play" data-id="${item.queue_item_id}" data-name="${item.name.replace(/"/g, '&quot;')}">
         <span class="q-play"><span class="material-symbols-outlined">${isCurrent ? 'equalizer' : 'play_arrow'}</span></span>
@@ -83,6 +135,16 @@ export function queuePlay(id, name) {
     document.getElementById('np-title').textContent = name;
     document.getElementById('np-pos').textContent = '0:00';
     document.getElementById('progress-fill').style.width = '0%';
+    // Reset lyrics so they reload for the new track
+    state._lastLyricsKey = '';
+    state._lrcLines = null;
+    state._lastLrcIdx = -1;
+    const lyCard = document.getElementById('lyrics-card');
+    const lyText = document.getElementById('lyrics-text');
+    if (lyCard && lyText) {
+      lyText.innerHTML = '<span style="color:var(--dim)">Loading lyrics...</span>';
+      lyCard.style.display = '';
+    }
   }
   // Lock play state so SSE doesn't revert the queue highlight before the track starts
   state.playStateLockUntil = Date.now() + 5000;

@@ -24,14 +24,16 @@
     │   ├── system.py         # System stats, service actions
     │   ├── fft.py            # cava FFT SSE stream
     │   ├── events.py         # Unified SSE endpoint
-    │   └── airplay.py        # shairport-sync metadata reader
+    │   ├── airplay.py        # shairport-sync metadata reader
+    │   └── recommend.py      # AI recommendations (Last.fm + LLM), auto-recommend
     ├── js/                   # ES modules, bundled to static/app.js via esbuild
     │   ├── main.js           # Entry point
     │   ├── state.js          # Shared state
     │   ├── api.js            # Fetch wrappers
-    │   ├── player.js         # Now playing, controls, volume
-    │   ├── queue.js          # Queue browser
-    │   ├── browse.js         # Search, recently played, playlists
+    │   ├── player.js         # Now playing, controls, volume, synced lyrics
+    │   ├── queue.js          # Queue browser with optimistic UI
+    │   ├── browse.js         # Search, AI recommendations, recently played, playlists
+    │   ├── autoplay.js       # "Don't Stop the Music" toggle (MA native)
     │   ├── charts.js         # Chart.js setup
     │   ├── fft.js            # FFT visualizer
     │   ├── system.js         # BT, services
@@ -61,3 +63,6 @@
 | `BT_MAC` | Bluetooth MAC address of the speaker |
 | `BT_DEVICE_NAME` | Friendly name of the Bluetooth speaker |
 | `MA_TOKEN` | Music Assistant long-lived access token |
+| `LASTFM_API_KEY` | Last.fm API key (free, for recommendations) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (for LLM-curated recommendations) |
+| `OPENROUTER_MODEL` | OpenRouter model ID (default: `google/gemini-3.1-flash-lite-preview`) |
