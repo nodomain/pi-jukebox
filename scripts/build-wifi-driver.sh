@@ -77,7 +77,7 @@ echo "==> Built: $MODULE_NAME"
 echo "==> Copying module to Pi"
 scp "$MODULE" "$HOST:/tmp/$MODULE_NAME"
 
-echo "==> Installing module on Pi"
+echo "==> Configuring module for auto-load on boot"
 ssh "$HOST" "
   sudo mkdir -p /lib/modules/$KVER/extra
   sudo cp /tmp/$MODULE_NAME /lib/modules/$KVER/extra/
@@ -85,27 +85,15 @@ ssh "$HOST" "
   sudo modprobe \$(basename $MODULE_NAME .ko)
   echo '  Module loaded'
   ip link show | grep wlan
-"
-
-echo "==> Configuring NetworkManager to prefer USB WiFi on 5GHz"
-ssh "$HOST" "
-  # Disable onboard WiFi (wlan0) so only USB adapter is used
-  if ! grep -q 'dtoverlay=disable-wifi' /boot/firmware/config.txt; then
-    echo 'dtoverlay=disable-wifi' | sudo tee -a /boot/firmware/config.txt > /dev/null
-    echo '  Onboard WiFi will be disabled after reboot'
-  fi
-
-  # Ensure the module loads on boot
-  echo '88x2bu' | sudo tee /etc/modules-load.d/rtl8812au.conf > /dev/null
-  # Prefer 5GHz band
-  sudo nmcli connection modify Fischernetz wifi.band a 2>/dev/null || true
-  echo '  Configured 5GHz preference'
+  echo ''
+  echo 'Run setup.sh again to configure NetworkManager for the USB adapter.'
 "
 
 echo ""
 echo "=== Done ==="
-echo "Reboot the Pi to disable onboard WiFi and use the USB adapter:"
-echo "  ssh $HOST 'sudo reboot'"
+echo "Next steps:"
+echo "  1. Run setup.sh on the Pi to configure NetworkManager"
+echo "  2. Reboot: ssh $HOST 'sudo reboot'"
 echo ""
 
 # Cleanup
