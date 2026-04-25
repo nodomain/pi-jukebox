@@ -103,6 +103,20 @@ After reboot the Pi auto-connects and starts streaming.
 make deploy
 ```
 
+### 6. USB WiFi adapter (optional)
+
+For better audio quality, plug in a TP-Link AC600 (Archer T2U Nano) USB WiFi adapter. It connects on 5 GHz, freeing the 2.4 GHz band for Bluetooth and reducing audio stutter.
+
+```bash
+# Build and install the driver (requires Docker on the dev machine)
+./scripts/build-wifi-driver.sh
+
+# Re-run setup to configure NetworkManager fallback
+make setup
+```
+
+When the USB adapter is plugged in, the Pi uses it on 5 GHz (priority 100). When unplugged, it falls back to onboard WiFi on 2.4 GHz (priority 10). No reboot needed for the switch.
+
 ## Make Targets
 
 ```
@@ -136,6 +150,7 @@ make ssh       — open SSH session
 | **cava** | FFT audio visualizer for the dashboard |
 | **SD card protection** | tmpfs on `/var/log` + `/var/tmp`, volatile journal, `commit=120s` |
 | **WiFi power save** | Disabled — prevents latency spikes |
+| **USB WiFi (optional)** | udev rule + NM connection for TP-Link AC600, 5 GHz preferred, auto-fallback to onboard |
 | **Disabled timers** | apt-daily, man-db, fstrim, e2scrub |
 
 ## Project Structure
@@ -146,7 +161,8 @@ make ssh       — open SSH session
 ├── Makefile                  # Dev machine targets (deploy, setup, logs, status, ...)
 ├── scripts/
 │   ├── setup.sh              # Pi provisioning — idempotent (run on Pi as root)
-│   └── pair-bt.sh            # Bluetooth pairing (run on Pi as root)
+│   ├── pair-bt.sh            # Bluetooth pairing (run on Pi as root)
+│   └── build-wifi-driver.sh  # Cross-compile RTL8812AU driver (run on dev machine)
 └── web/                      # Flask dashboard (deployed to /opt/jukebox/)
     ├── app.py                # Flask app factory, blueprint registration
     ├── helpers.py            # Shared shell helpers (run, run_pw)

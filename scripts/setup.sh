@@ -149,6 +149,42 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target" || true
 
+# --- USB WiFi adapter (optional, auto-fallback to onboard) ---
+echo "==> USB WiFi adapter config"
+# udev rule: give TP-Link AC600 (RTL8811AU/8812AU) a predictable name
+ensure_file /etc/udev/rules.d/70-wifi-usb.conf \
+'SUBSYSTEM=="net", ACTION=="add", ATTRS{idVendor}=="2357", ATTRS{idProduct}=="011e", NAME="wlan-usb"' || true
+
+# Ensure the 88XXau module loads on boot (if driver was built)
+if [[ -f "/lib/modules/$(uname -r)/extra/88XXau.ko" ]]; then
+    ensure_file /etc/modules-load.d/rtl8812au.conf "88XXau" || true
+    echo "  driver found, auto-load configured"
+else
+    echo "  no driver found (run build-wifi-driver.sh to install)"
+fi
+
+# NM connection for USB adapter: higher priority, prefer 5GHz
+# Only create if not already present
+if ! nmcli connection show wifi-usb &>/dev/null; then
+    # Get WiFi password from existing connection
+    WIFI_PSK=$(grep -oP 'psk=\K.*' /etc/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
+    WIFI_SSID=$(grep -oP 'ssid=\K.*' /etc/NetworkManager/system-connections/netplan-wlan0-*.nmconnection 2>/dev/null | head -1 || echo '')
+    if [[ -n "$WIFI_SSID" && -n "$WIFI_PSK" ]]; then
+        nmcli connection add type wifi ifname wlan-usb con-name wifi-usb \
+            ssid "$WIFI_SSID" \
+            autoconnect yes connection.autoconnect-priority 100 \
+            wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$WIFI_PSK" 2>/dev/null
+        echo "  wifi-usb connection created (priority 100)"
+    else
+        echo "  skipped (no WiFi credentials found)"
+    fi
+else
+    echo "  wifi-usb connection already exists"
+fi
+
+# Lower priority for onboard WiFi so USB adapter wins when present
+nmcli connection modify netplan-wlan0-* connection.autoconnect-priority 10 2>/dev/null || true
+
 # --- WirePlumber ---
 echo "==> WirePlumber headless fix + SBC-XQ"
 ensure_file /etc/wireplumber/wireplumber.conf.d/50-bluez-no-seat.conf \
