@@ -12,12 +12,14 @@ import {
   toggleFavorite, startSleepTimer, cancelSleepTimer, updateSleepTimerDisplay,
   pollAirplay,
 } from './player.js';
-import { toggleQueue, clearQueue, toggleShuffle, toggleRepeat, initQueueEvents } from './queue.js';
+import { toggleQueue, clearQueue, toggleShuffle, toggleRepeat, initQueueEvents, saveQueueAsPlaylist } from './queue.js';
 import { connectSSE } from './sse.js';
 import { initFFT } from './fft.js';
 import { pollBt, btScan, btDisconnect, svcAction, initSystemEvents } from './system.js';
 import { initSearch, loadRecent, loadPlaylists, toggleRecent, togglePlaylists, playRecent, playPlaylist, addAllResults } from './browse.js';
 import { toggleAutoplay, initAutoplay } from './autoplay.js';
+import { initMultiRoom } from './multiroom.js';
+import { initEqualizer } from './equalizer.js';
 
 // Re-export state for any module that still imports from main
 export { state } from './state.js';
@@ -43,6 +45,7 @@ window.playRecent = playRecent;
 window.playPlaylist = playPlaylist;
 window.addAllResults = addAllResults;
 window.toggleAutoplay = toggleAutoplay;
+window.saveQueueAsPlaylist = saveQueueAsPlaylist;
 
 /** Show/hide sleep timer menu. */
 function showSleepMenu() {
@@ -69,6 +72,8 @@ function init() {
   initFFT();
   initSearch();
   initAutoplay();
+  initMultiRoom();
+  initEqualizer();
   connectSSE();
 
   // Initial data fetch (SSE will take over after connection)

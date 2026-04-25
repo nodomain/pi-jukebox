@@ -834,6 +834,60 @@ def ma_control():
 # --- Lyrics (separate endpoint to avoid blocking queue) ---
 
 
+@ma_bp.route("/api/ma/players")
+def ma_players():
+    """Get all MA players for multi-room transfer."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    data = ma_rpc("players/all")
+    if data is None:
+        return jsonify({"error": "MA unreachable"}), 500
+    players = []
+    for player in (data if isinstance(data, list) else []):
+        players.append({
+            "player_id": player.get("player_id", ""),
+            "name": player.get("display_name", ""),
+            "available": player.get("available", False),
+            "active_source": player.get("active_source", ""),
+            "type": player.get("type", ""),
+        })
+    return jsonify({"players": players})
+
+
+@ma_bp.route("/api/ma/players/transfer", methods=["POST"])
+def ma_players_transfer():
+    """Transfer playback queue to another MA player."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    body = request.json or {}
+    target = body.get("target_queue_id", "")
+    source = body.get("source_queue_id", "ma_jukebox")
+    if not target:
+        return jsonify({"error": "Missing target_queue_id"}), 400
+    result = ma_rpc("player_queues/transfer", {
+        "source_queue_id": source,
+        "target_queue_id": target,
+    })
+    return jsonify({"result": result or "ok"})
+
+
+@ma_bp.route("/api/ma/queue/save", methods=["POST"])
+def ma_queue_save():
+    """Save the current queue as a playlist."""
+    if not MA_TOKEN:
+        return jsonify({"error": "MA_TOKEN not configured"}), 500
+    body = request.json or {}
+    name = body.get("name", "").strip()
+    queue_id = body.get("queue_id", "ma_jukebox")
+    if not name:
+        return jsonify({"error": "Missing playlist name"}), 400
+    result = ma_rpc("player_queues/save_as_playlist", {
+        "queue_id": queue_id,
+        "name": name,
+    })
+    return jsonify({"result": result or "ok"})
+
+
 @ma_bp.route("/api/ma/lyrics")
 def ma_lyrics():
     """Fetch lyrics for a track via LRCLIB (with MA fallback).
