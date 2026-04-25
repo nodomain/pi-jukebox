@@ -19,6 +19,7 @@ import queue
 import threading
 import time
 import urllib.request
+import urllib.parse
 
 from flask import Blueprint, Response, jsonify, request  # pylint: disable=import-error
 
@@ -98,7 +99,7 @@ def ma_ws_thread(app):
         app: Flask application instance for logging.
     """
     try:
-        import websocket  # pylint: disable=import-outside-toplevel,import-error
+        import websocket  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel,import-error
     except ImportError:
         app.logger.error("websocket-client not installed, WS disabled")
         return
@@ -309,8 +310,8 @@ def _fetch_lyrics(track_id, track_uri, artist="", title=""):
         try:
             url = (
                 "https://lrclib.net/api/get"
-                f"?artist_name={urllib.request.quote(artist)}"
-                f"&track_name={urllib.request.quote(title)}"
+                f"?artist_name={urllib.parse.quote(artist)}"
+                f"&track_name={urllib.parse.quote(title)}"
             )
             req = urllib.request.Request(
                 url, headers={"User-Agent": "JukeboxPi/1.0"},
@@ -543,7 +544,7 @@ def ma_imageproxy():
         return "", 400
     proxy_url = (
         f"http://{SNAPCAST_SERVER}:8095/imageproxy"
-        f"?path={urllib.request.quote(url, safe='')}"
+        f"?path={urllib.parse.quote(url, safe='')}"
         f"&size=512&fmt=jpeg"
     )
     try:

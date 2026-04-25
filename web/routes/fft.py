@@ -24,13 +24,14 @@ CAVA_CONF = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cava.conf"
 
 # Shared cava process state
 _cava_lock = threading.Lock()
-_cava_proc = None  # pylint: disable=invalid-name
-_cava_clients = []  # list of queue.Queue
+_cava_proc: subprocess.Popen | None = None  # type: ignore[type-arg]
+_cava_clients: list = []
 
 
 def _cava_reader():
     """Background thread: read cava stdout and broadcast to SSE clients."""
     try:
+        assert _cava_proc is not None and _cava_proc.stdout is not None
         for line in _cava_proc.stdout:
             line = line.strip()
             if not line:

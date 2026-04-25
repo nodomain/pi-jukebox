@@ -154,7 +154,7 @@ def stats_data():
 
     throttle_raw = run("vcgencmd get_throttled").replace("throttled=", "")
     throttle = decode_throttle(throttle_raw)
-    throttle["raw"] = throttle_raw
+    throttle["raw"] = throttle_raw  # type: ignore[assignment]
 
     return {
         "temp": float(temp) if temp else 0,

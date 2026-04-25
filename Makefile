@@ -8,7 +8,7 @@ HOST := $(JUKEBOX_USER)@$(JUKEBOX_HOST)
 REMOTE_DIR := /opt/jukebox
 TMP_DIR := /tmp/jukebox-deploy
 
-.PHONY: help build deploy setup pair logs status restart reboot ssh
+.PHONY: help build deploy setup pair logs status restart reboot ssh smoke typecheck
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -67,3 +67,9 @@ reboot: ## Reboot the Pi
 
 ssh: ## Open SSH session to the Pi
 	@ssh $(HOST)
+
+smoke: ## Run smoke test against the Pi
+	@./scripts/smoke-test.sh
+
+typecheck: ## Run pyright type checking on Python code
+	@cd web && pyright routes/*.py app.py helpers.py
