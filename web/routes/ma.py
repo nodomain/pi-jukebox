@@ -658,12 +658,19 @@ def ma_playlists():
     result = data.get("result", data) if isinstance(data, dict) else data
     items = []
     for item in (result if isinstance(result, list) else []):
+        images = (item.get("metadata") or {}).get("images") or []
+        thumb = ""
+        for img in images:
+            if img.get("path"):
+                thumb = img["path"]
+                break
         items.append({
             "name": item.get("name", ""),
             "uri": item.get("uri", ""),
             "item_id": item.get("item_id", ""),
             "owner": item.get("owner", ""),
             "is_editable": item.get("is_editable", False),
+            "image_url": thumb,
         })
     return jsonify({"items": items})
 
