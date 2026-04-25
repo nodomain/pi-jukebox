@@ -39,10 +39,40 @@ def decode_throttle(val):
     }
 
 
+def _find_wifi_iface():
+    """Find the active WiFi interface (prefers wlan-usb over wlan*)."""
+    for candidate in ["wlan-usb", "wlan0", "wlan1"]:
+        state = run(f"cat /sys/class/net/{candidate}/operstate 2>/dev/null").strip()
+        if state == "up" or state == "dormant":
+            return candidate
+    # Fallback: first wlan* that exists
+    import glob
+    for path in sorted(glob.glob("/sys/class/net/wlan*")):
+        return path.split("/")[-1]
+    return "wlan0"
+
+
 def _parse_wifi():
     """Parse WiFi stats from iw and /proc/net/dev."""
     wifi = {}
-    station = run("/usr/sbin/iw dev wlan0 station dump")
+    iface = _find_wifi_iface()
+    wifi["interface"] = iface
+
+    # Adapter name from /sys
+    try:
+        uevent = run(f"cat /sys/class/net/{iface}/device/uevent 2>/dev/null")
+        for line in uevent.splitlines():
+            if line.startswith("DRIVER="):
+                wifi["driver"] = line.split("=", 1)[1]
+    except Exception:
+        pass
+
+    # USB product name (if USB adapter)
+    product = run(f"cat /sys/class/net/{iface}/device/../product 2>/dev/null").strip()
+    if product:
+        wifi["adapter"] = product
+
+    station = run(f"/usr/sbin/iw dev {iface} station dump")
     for line in station.splitlines():
         line = line.strip()
         if line.startswith("signal:"):
@@ -51,15 +81,27 @@ def _parse_wifi():
             wifi["tx_bitrate"] = line.split(":")[1].strip()
         elif line.startswith("rx bitrate:"):
             wifi["rx_bitrate"] = line.split(":")[1].strip()
-    link = run("/usr/sbin/iw dev wlan0 link")
+
+    link = run(f"/usr/sbin/iw dev {iface} link")
     for line in link.splitlines():
         line = line.strip()
         if line.startswith("SSID:"):
             wifi["ssid"] = line.split(":", 1)[1].strip()
         elif line.startswith("freq:"):
-            wifi["freq"] = line.split(":")[1].strip()
+            freq_str = line.split(":")[1].strip().split(".")[0]
+            try:
+                freq_mhz = int(float(line.split(":")[1].strip()))
+                wifi["freq"] = freq_str
+                wifi["band"] = "5 GHz" if freq_mhz > 4000 else "2.4 GHz"
+                # Approximate channel from frequency
+                if freq_mhz > 5000:
+                    wifi["channel"] = (freq_mhz - 5000) // 5
+                elif freq_mhz > 2400:
+                    wifi["channel"] = (freq_mhz - 2407) // 5
+            except ValueError:
+                wifi["freq"] = freq_str
 
-    net = run("cat /proc/net/dev | grep wlan0").split()
+    net = run(f"cat /proc/net/dev | grep {iface}").split()
     if len(net) > 9:
         wifi["rx_bytes"] = int(net[1])
         wifi["tx_bytes"] = int(net[9])
