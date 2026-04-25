@@ -4,16 +4,22 @@ Endpoints:
     GET  /api/audio/status — list PipeWire sinks and default sink
     POST /api/audio/volume — set default sink volume
     GET  /api/audio/eq     — get current EQ preset
-    POST /api/audio/eq     — set EQ preset
+    POST /api/audio/eq     — set EQ preset (rewrites PipeWire filter-chain)
 """
 
+import os
 import re
 
 from flask import Blueprint, jsonify, request  # pylint: disable=import-error
 
-from helpers import run_pw  # pylint: disable=import-error
+from helpers import run, run_pw  # pylint: disable=import-error
 
 audio_bp = Blueprint("audio", __name__)
+
+# Path to the PipeWire filter-chain config for EQ
+_EQ_CONF = os.path.expanduser(
+    "~/.config/pipewire/pipewire.conf.d/99-jukebox-eq.conf"
+)
 
 
 def audio_status_data():
@@ -99,7 +105,7 @@ def audio_eq():
 
 @audio_bp.route("/api/audio/eq", methods=["POST"])
 def audio_eq_set():
-    """Set EQ preset. Stores the selection; actual PipeWire EQ TBD on Pi."""
+    """Set EQ preset by rewriting the PipeWire filter-chain config and restarting."""
     body = request.json or {}
     preset = body.get("preset", "")
     if preset not in EQ_PRESETS:
@@ -108,8 +114,62 @@ def audio_eq_set():
     _current_eq["preset"] = preset
     _current_eq["bass"] = vals["bass"]
     _current_eq["treble"] = vals["treble"]
-    # TODO: Apply PipeWire parametric EQ filter when testing on Pi
-    # e.g. pw-cli set-param for filter-chain nodes
+
+    # Write PipeWire filter-chain config with the EQ values
+    bass = float(vals["bass"])
+    treble = float(vals["treble"])
+    conf_dir = os.path.dirname(_EQ_CONF)
+    os.makedirs(conf_dir, exist_ok=True)
+
+    if preset == "flat" and os.path.exists(_EQ_CONF):
+        # Flat = remove the filter entirely
+        os.remove(_EQ_CONF)
+    elif preset != "flat":
+        with open(_EQ_CONF, "w") as f:
+            f.write(f"""context.modules = [
+    {{   name = libpipewire-module-filter-chain
+        args = {{
+            node.description = "Jukebox EQ"
+            media.name = "Jukebox EQ"
+            filter.graph = {{
+                nodes = [
+                    {{
+                        type = builtin
+                        name = eq_low
+                        label = bq_lowshelf
+                        control = {{ "Freq" = 200.0 "Q" = 0.7 "Gain" = {bass} }}
+                    }}
+                    {{
+                        type = builtin
+                        name = eq_high
+                        label = bq_highshelf
+                        control = {{ "Freq" = 4000.0 "Q" = 0.7 "Gain" = {treble} }}
+                    }}
+                ]
+                links = [
+                    {{ output = "eq_low:Out" input = "eq_high:In" }}
+                ]
+            }}
+            capture.props = {{
+                node.name = "jukebox_eq_sink"
+                media.class = "Audio/Sink"
+                audio.position = [ FL FR ]
+            }}
+            playback.props = {{
+                node.name = "jukebox_eq_source"
+                node.passive = true
+                audio.position = [ FL FR ]
+            }}
+        }}
+    }}
+]
+""")
+
+    # Restart PipeWire to apply the new config, then restart Snapclient
+    # (PipeWire restart kills the Pulse connection that Snapclient uses)
+    run("systemctl --user restart pipewire pipewire-pulse wireplumber", timeout=10)
+    run("sleep 2 && sudo systemctl restart snapclient", timeout=15)
+
     return jsonify({
         "preset": preset,
         "bass": vals["bass"],
