@@ -4,8 +4,8 @@
  */
 
 import { state } from './state.js';
-import { fetchMaQueueItems, maQueueAction, maPlayMedia } from './api.js';
-import { fmtTime } from './player.js';
+import { fetchMaQueueItems, maQueueAction, maPlayMedia, maSaveQueueAsPlaylist } from './api.js';
+import { fmtTime, showToast } from './player.js';
 
 /**
  * Optimistically add a track to the queue UI and fire the API call.
@@ -216,4 +216,149 @@ export function initQueueEvents() {
       item.classList.toggle('q-expanded');
     }
   });
+
+  // Initialize touch drag reorder
+  initQueueDrag();
+}
+
+/** Save current queue as a playlist. */
+export async function saveQueueAsPlaylist() {
+  if (!state.currentQueueId) {
+    showToast('No active queue');
+    return;
+  }
+  const name = prompt('Playlist name:');
+  if (!name || !name.trim()) return;
+  try {
+    await maSaveQueueAsPlaylist(name.trim(), state.currentQueueId);
+    showToast('Saved as "' + name.trim() + '"');
+  } catch (e) {
+    showToast('Failed to save playlist');
+  }
+}
+
+/** Initialize touch-based drag reorder on queue items. */
+function initQueueDrag() {
+  const list = document.getElementById('queue-list');
+  let dragItem = null;
+  let dragId = '';
+  let startY = 0;
+  let startIndex = 0;
+  let longPressTimer = null;
+  let isDragging = false;
+  let placeholder = null;
+
+  function getItemIndex(el) {
+    const items = Array.from(list.querySelectorAll('.q-item:not(.q-placeholder)'));
+    return items.indexOf(el);
+  }
+
+  function getItemAtY(y) {
+    const items = Array.from(list.querySelectorAll('.q-item:not(.q-placeholder):not(.q-dragging)'));
+    for (const item of items) {
+      const rect = item.getBoundingClientRect();
+      if (y >= rect.top && y <= rect.bottom) return item;
+    }
+    return null;
+  }
+
+  list.addEventListener('touchstart', function (e) {
+    const item = e.target.closest('.q-item');
+    if (!item || e.target.closest('[data-action]') || e.target.closest('button')) return;
+    startY = e.touches[0].clientY;
+    const id = item.dataset.id;
+    // Long press to start drag (500ms)
+    longPressTimer = setTimeout(() => {
+      isDragging = true;
+      dragItem = item;
+      dragId = id;
+      startIndex = getItemIndex(item);
+      item.classList.add('q-dragging');
+      // Create placeholder
+      placeholder = document.createElement('div');
+      placeholder.className = 'q-item q-placeholder';
+      placeholder.style.height = item.offsetHeight + 'px';
+      item.parentNode.insertBefore(placeholder, item);
+      // Position dragged item absolutely
+      item.style.position = 'fixed';
+      item.style.left = '0';
+      item.style.right = '0';
+      item.style.top = (e.touches[0].clientY - item.offsetHeight / 2) + 'px';
+      item.style.zIndex = '1000';
+      item.style.width = list.offsetWidth + 'px';
+    }, 500);
+  }, { passive: true });
+
+  list.addEventListener('touchmove', function (e) {
+    if (!isDragging || !dragItem) {
+      // Cancel long press if finger moves too much before drag starts
+      if (longPressTimer && Math.abs(e.touches[0].clientY - startY) > 10) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      return;
+    }
+    e.preventDefault();
+    const y = e.touches[0].clientY;
+    dragItem.style.top = (y - dragItem.offsetHeight / 2) + 'px';
+    // Move placeholder to indicate drop position
+    const target = getItemAtY(y);
+    if (target && target !== placeholder) {
+      const targetRect = target.getBoundingClientRect();
+      const mid = targetRect.top + targetRect.height / 2;
+      if (y < mid) {
+        list.insertBefore(placeholder, target);
+      } else {
+        list.insertBefore(placeholder, target.nextSibling);
+      }
+    }
+  }, { passive: false });
+
+  list.addEventListener('touchend', function () {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    if (!isDragging || !dragItem) return;
+    // Calculate position shift
+    const endIndex = getItemIndex(placeholder);
+    const shift = endIndex - startIndex;
+    // Clean up drag state
+    dragItem.classList.remove('q-dragging');
+    dragItem.style.position = '';
+    dragItem.style.left = '';
+    dragItem.style.right = '';
+    dragItem.style.top = '';
+    dragItem.style.zIndex = '';
+    dragItem.style.width = '';
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(dragItem, placeholder);
+      placeholder.remove();
+    }
+    placeholder = null;
+    isDragging = false;
+    // Fire API call if position changed
+    if (shift !== 0 && dragId) {
+      queueMove(dragId, shift);
+    }
+    dragItem = null;
+    dragId = '';
+  }, { passive: true });
+
+  list.addEventListener('touchcancel', function () {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    if (dragItem) {
+      dragItem.classList.remove('q-dragging');
+      dragItem.style.position = '';
+      dragItem.style.left = '';
+      dragItem.style.right = '';
+      dragItem.style.top = '';
+      dragItem.style.zIndex = '';
+      dragItem.style.width = '';
+    }
+    if (placeholder && placeholder.parentNode) placeholder.remove();
+    placeholder = null;
+    isDragging = false;
+    dragItem = null;
+    dragId = '';
+  }, { passive: true });
 }

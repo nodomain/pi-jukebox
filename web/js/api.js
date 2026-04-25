@@ -258,3 +258,40 @@ export function maControl(action, queueId, extra = {}) {
     body: JSON.stringify({ action, queue_id: queueId, ...extra }),
   }).then(r => r.json());
 }
+
+/** Fetch all MA players for multi-room transfer. */
+export function fetchMaPlayers() {
+  return fetch('/api/ma/players').then(r => r.json());
+}
+
+/** Transfer playback to another MA player. */
+export function maTransferPlayback(targetQueueId, sourceQueueId = 'ma_jukebox') {
+  return fetch('/api/ma/players/transfer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_queue_id: targetQueueId, source_queue_id: sourceQueueId }),
+  }).then(r => r.json());
+}
+
+/** Save current queue as a playlist. */
+export function maSaveQueueAsPlaylist(name, queueId = 'ma_jukebox') {
+  return fetch('/api/ma/queue/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, queue_id: queueId }),
+  }).then(r => r.json());
+}
+
+/** Fetch EQ presets and current setting. */
+export function fetchEqPresets() {
+  return fetch('/api/audio/eq').then(r => r.json());
+}
+
+/** Set EQ preset. */
+export function setEqPreset(preset) {
+  return fetch('/api/audio/eq', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset }),
+  }).then(r => r.json());
+}

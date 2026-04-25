@@ -5,7 +5,7 @@
 
 import { state } from './state.js';
 import {
-  fetchSnapcastStatus, snapcastControl,
+  fetchSnapcastStatus,
   setAudioVolume, fetchMaVolume, setMaVolume, fetchMaQueue,
   setSnapcastClientVolume, maFavorite,
   fetchAirplayStatus, fetchSpotifyStatus, maControl, fetchLyrics,
@@ -16,6 +16,24 @@ export function fmtTime(s) {
   s = Math.max(0, Math.round(s));
   const m = Math.floor(s / 60);
   return m + ':' + String(s % 60).padStart(2, '0');
+}
+
+/** Show a toast notification. */
+export function showToast(message, duration = 3000) {
+  const existing = document.getElementById('toast-notification');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.id = 'toast-notification';
+  toast.className = 'toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  // Trigger reflow then show
+  toast.offsetWidth; // eslint-disable-line no-unused-expressions
+  toast.classList.add('toast-show');
+  setTimeout(() => {
+    toast.classList.remove('toast-show');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
 }
 
 /** Update the progress bar by interpolating elapsed time. */
@@ -448,18 +466,79 @@ export async function toggleFavorite() {
   await maFavorite(state.currentTrackUri);
 }
 
-/** Start a sleep timer. */
+/** Start a sleep timer with gradual volume fade-out over the last 30 seconds. */
 export function startSleepTimer(minutes) {
   cancelSleepTimer();
   if (!minutes || minutes <= 0) return;
   state.sleepTimerEnd = Date.now() + minutes * 60000;
+  state._sleepFadeStarted = false;
+  state._sleepOriginalVolume = null;
+  state._sleepFadeInterval = null;
+
+  // Main timer: pause when time expires
   state.sleepTimerId = setTimeout(() => {
     snapControl('pause');
+    // Restore original volume after pause
+    if (state._sleepOriginalVolume !== null) {
+      setAudioVolume(state._sleepOriginalVolume);
+      const slider = document.getElementById('vol-slider');
+      if (slider) {
+        slider.value = Math.round(state._sleepOriginalVolume * 100);
+        document.getElementById('vol-val').textContent = Math.round(state._sleepOriginalVolume * 100) + '%';
+      }
+    }
+    _cleanupSleepFade();
     state.sleepTimerId = null;
     state.sleepTimerEnd = 0;
     updateSleepTimerDisplay();
   }, minutes * 60000);
+
+  // Fade timer: start fading 30s before end
+  const fadeDelay = Math.max(0, minutes * 60000 - 30000);
+  state._sleepFadeTimeout = setTimeout(() => {
+    _startSleepFade();
+  }, fadeDelay);
+
   updateSleepTimerDisplay();
+}
+
+/** Begin gradual volume reduction over 30 seconds. */
+function _startSleepFade() {
+  if (state._sleepFadeStarted) return;
+  state._sleepFadeStarted = true;
+  // Capture current volume
+  const slider = document.getElementById('vol-slider');
+  const currentVol = slider ? parseInt(slider.value, 10) / 100 : 0.3;
+  state._sleepOriginalVolume = currentVol;
+  const steps = 15; // fade in 15 steps over 30s (every 2s)
+  let step = 0;
+  state._sleepFadeInterval = setInterval(() => {
+    step++;
+    if (step >= steps) {
+      clearInterval(state._sleepFadeInterval);
+      state._sleepFadeInterval = null;
+      return;
+    }
+    const vol = currentVol * (1 - step / steps);
+    setAudioVolume(Math.max(0, vol));
+    if (slider) {
+      slider.value = Math.round(vol * 100);
+      document.getElementById('vol-val').textContent = Math.round(vol * 100) + '%';
+    }
+  }, 2000);
+}
+
+/** Clean up fade-out intervals. */
+function _cleanupSleepFade() {
+  if (state._sleepFadeInterval) {
+    clearInterval(state._sleepFadeInterval);
+    state._sleepFadeInterval = null;
+  }
+  if (state._sleepFadeTimeout) {
+    clearTimeout(state._sleepFadeTimeout);
+    state._sleepFadeTimeout = null;
+  }
+  state._sleepFadeStarted = false;
 }
 
 /** Cancel the sleep timer. */
@@ -468,6 +547,17 @@ export function cancelSleepTimer() {
     clearTimeout(state.sleepTimerId);
     state.sleepTimerId = null;
   }
+  // Restore volume if fade was in progress
+  if (state._sleepOriginalVolume !== null && state._sleepFadeStarted) {
+    setAudioVolume(state._sleepOriginalVolume);
+    const slider = document.getElementById('vol-slider');
+    if (slider) {
+      slider.value = Math.round(state._sleepOriginalVolume * 100);
+      document.getElementById('vol-val').textContent = Math.round(state._sleepOriginalVolume * 100) + '%';
+    }
+  }
+  _cleanupSleepFade();
+  state._sleepOriginalVolume = null;
   state.sleepTimerEnd = 0;
   updateSleepTimerDisplay();
 }
@@ -485,19 +575,22 @@ export function updateSleepTimerDisplay() {
   }
 }
 
-/** Initialize seek bar (click + drag). */
+/** Initialize seek bar (click + drag) — uses MA API directly. */
 export function initSeekBar() {
   const bar = document.getElementById('progress-bar');
 
   function seekTo(e) {
-    if (state.npDuration <= 0 || !state.currentStreamId) return;
+    if (state.npDuration <= 0 || !state.currentQueueId) return;
     const rect = bar.getBoundingClientRect();
     const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
     const pct = Math.max(0, Math.min(1, x / rect.width));
-    const pos = pct * state.npDuration;
+    const pos = Math.round(pct * state.npDuration);
     document.getElementById('progress-fill').style.width = (pct * 100) + '%';
     document.getElementById('np-pos').textContent = fmtTime(pos);
-    snapcastControl('seek', state.currentStreamId, { position: pos })
+    // Update interpolation base so progress doesn't jump back
+    state.npElapsed = pos;
+    state.npElapsedAt = Date.now() / 1000;
+    maControl('seek', state.currentQueueId, { position: pos })
       .then(() => setTimeout(pollMaQueue, 500));
   }
 
@@ -506,6 +599,21 @@ export function initSeekBar() {
   bar.addEventListener('touchstart', function (e) { dragging = true; seekTo(e); }, { passive: true });
   bar.addEventListener('touchmove', function (e) { if (dragging) seekTo(e); }, { passive: true });
   bar.addEventListener('touchend', function () { dragging = false; });
+}
+
+/** Show a brief swipe arrow overlay on the player card. */
+function showSwipeIndicator(direction) {
+  const card = document.getElementById('player-card');
+  const existing = card.querySelector('.swipe-indicator');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'swipe-indicator';
+  el.textContent = direction === 'next' ? '→' : '←';
+  card.appendChild(el);
+  // Trigger reflow then animate
+  el.offsetWidth; // eslint-disable-line no-unused-expressions
+  el.classList.add('swipe-fade');
+  setTimeout(() => el.remove(), 600);
 }
 
 /** Initialize swipe gestures on the player card. */
@@ -528,8 +636,13 @@ export function initSwipeGestures() {
     if (dt > MAX_TIME) return;
     if (Math.abs(dx) < MIN_SWIPE && Math.abs(dy) < MIN_SWIPE) return;
     if (Math.abs(dy) > Math.abs(dx)) return;
-    if (dx > MIN_SWIPE) snapControl('previous');
-    else if (dx < -MIN_SWIPE) snapControl('next');
+    if (dx > MIN_SWIPE) {
+      showSwipeIndicator('previous');
+      snapControl('previous');
+    } else if (dx < -MIN_SWIPE) {
+      showSwipeIndicator('next');
+      snapControl('next');
+    }
   }, { passive: true });
 }
 

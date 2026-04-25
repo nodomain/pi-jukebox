@@ -122,6 +122,7 @@
     <h2 style="margin:0">Queue <span id="queue-count" style="font-weight:400"></span></h2>
     <div style="display:flex; gap:6px">
       <button onclick="toggleQueue()" class="secondary" style="padding:4px 10px; font-size:0.75em" id="btn-queue-toggle">Show</button>
+      <button onclick="saveQueueAsPlaylist()" class="secondary" style="padding:4px 10px; font-size:0.75em">Save</button>
       <button onclick="clearQueue()" class="danger" style="padding:4px 10px; font-size:0.75em">Clear</button>
     </div>
   </div>
@@ -230,6 +231,22 @@
       <button onclick="if(confirm('Restart BT Watchdog?'))svcAction('restart-bt')">Restart BT</button>
       <button onclick="if(confirm('Reboot the Pi?'))svcAction('reboot')" class="danger">Reboot</button>
     </div>
+  </div>
+</div>
+
+<!-- Multi-Room Players -->
+<div class="card">
+  <h2>Multi-Room Players</h2>
+  <div id="multiroom-list" style="max-height:200px; overflow-y:auto">
+    <div style="color:var(--dim)">Open to load players...</div>
+  </div>
+</div>
+
+<!-- EQ Presets -->
+<div class="card">
+  <h2>Equalizer</h2>
+  <div id="eq-presets" style="display:flex; gap:6px; flex-wrap:wrap">
+    <div style="color:var(--dim)">Open to load presets...</div>
   </div>
 </div>
 </details>
