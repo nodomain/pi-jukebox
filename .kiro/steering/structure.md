@@ -59,7 +59,7 @@
 |---|---|
 | `JUKEBOX_USER` | Linux username on the Pi |
 | `JUKEBOX_HOST` | Pi hostname (e.g. `jukebox.local`) |
-| `SNAPCAST_SERVER` | IP of the Snapcast / Home Assistant server |
+| `SNAPCAST_SERVER` | mDNS hostname of the Music Assistant / Snapcast server (e.g. `mass.local`). Resolved via `libnss-mdns`, so it survives IP changes. A raw IP also works. |
 | `BT_MAC` | Bluetooth MAC address of the speaker |
 | `BT_DEVICE_NAME` | Friendly name of the Bluetooth speaker |
 | `MA_TOKEN` | Music Assistant long-lived access token |

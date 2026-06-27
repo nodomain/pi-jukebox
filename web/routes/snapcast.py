@@ -11,12 +11,13 @@ import os
 import re
 
 from flask import Blueprint, jsonify, request  # pylint: disable=import-error
-
 from helpers import run  # pylint: disable=import-error
 
 snap_bp = Blueprint("snapcast", __name__)
 
-SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "192.168.10.250")
+# Music Assistant's mDNS hostname; the built-in Snapcast server runs on the
+# same host, so this resolves both the MA API and Snapcast JSON-RPC.
+SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "mass.local")
 
 
 def snapcast_rpc(method, params=None):
@@ -71,16 +72,18 @@ def snapcast_status_data():
         for group in server["groups"]:
             stream_id = group["stream_id"]
             for client in group["clients"]:
-                clients.append({
-                    "id": client["id"],
-                    "name": client["config"]["name"] or client["host"]["name"],
-                    "ip": client["host"]["ip"],
-                    "connected": client["connected"],
-                    "volume": client["config"]["volume"]["percent"],
-                    "muted": client["config"]["volume"]["muted"],
-                    "latency": client["config"].get("latency", 0),
-                    "stream": stream_id,
-                })
+                clients.append(
+                    {
+                        "id": client["id"],
+                        "name": client["config"]["name"] or client["host"]["name"],
+                        "ip": client["host"]["ip"],
+                        "connected": client["connected"],
+                        "volume": client["config"]["volume"]["percent"],
+                        "muted": client["config"]["volume"]["muted"],
+                        "latency": client["config"].get("latency", 0),
+                        "stream": stream_id,
+                    }
+                )
 
         streams = []
         now_playing = None
@@ -170,13 +173,9 @@ def snapcast_jitter():
         except ValueError:
             continue
         msg = parts[1]
-        match = re.search(
-            r"(pMiniBuffer|pShortBuffer|pBuffer).+?:\s*(-?\d+)", msg
-        )
+        match = re.search(r"(pMiniBuffer|pShortBuffer|pBuffer).+?:\s*(-?\d+)", msg)
         if match:
-            points.append(
-                {"ts": ts, "type": match.group(1), "us": int(match.group(2))}
-            )
+            points.append({"ts": ts, "type": match.group(1), "us": int(match.group(2))})
     return jsonify({"points": points})
 
 
@@ -192,7 +191,10 @@ def snapcast_client_volume():
     muted = body.get("muted")
     if not client_id or volume is None:
         return jsonify({"error": "Missing client_id or volume"}), 400
-    vol_obj = {"percent": max(0, min(100, int(volume))), "muted": bool(muted) if muted is not None else False}
+    vol_obj = {
+        "percent": max(0, min(100, int(volume))),
+        "muted": bool(muted) if muted is not None else False,
+    }
     result = snapcast_rpc("Client.SetVolume", {"id": client_id, "volume": vol_obj})
     return jsonify({"result": result or "ok"})
 
@@ -208,5 +210,7 @@ def snapcast_client_latency():
     latency = body.get("latency")
     if not client_id or latency is None:
         return jsonify({"error": "Missing client_id or latency"}), 400
-    result = snapcast_rpc("Client.SetLatency", {"id": client_id, "latency": int(latency)})
+    result = snapcast_rpc(
+        "Client.SetLatency", {"id": client_id, "latency": int(latency)}
+    )
     return jsonify({"result": result or "ok"})

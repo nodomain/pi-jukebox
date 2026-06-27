@@ -73,7 +73,7 @@ fi
 echo "==> Packages"
 PACKAGES=(snapclient bluez pipewire pipewire-pulse wireplumber
     libspa-0.2-bluetooth pulseaudio-utils rfkill cava
-    shairport-sync avahi-daemon avahi-utils
+    shairport-sync avahi-daemon avahi-utils libnss-mdns
     python3-flask python3-websocket)
 MISSING=()
 for pkg in "${PACKAGES[@]}"; do
@@ -91,7 +91,9 @@ fi
 
 # --- Snapclient config ---
 echo "==> Snapclient"
-# Buffer of 500ms absorbs WiFi jitter; fixed hostID prevents ghost clients when MAC changes
+# Buffer of 500ms absorbs WiFi jitter; fixed hostID prevents ghost clients when MAC changes.
+# SNAPCAST_SERVER is the Music Assistant mDNS hostname (e.g. mass.local) — libnss-mdns
+# resolves it, so a moved server is picked up automatically without editing configs.
 ensure_file /etc/default/snapclient \
     "SNAPCLIENT_OPTS=\"--host ${SNAPCAST_SERVER} --player pulse --latency 500 --hostID jukebox\"" || true
 

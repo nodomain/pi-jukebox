@@ -14,18 +14,17 @@ Endpoints:
 import json
 import logging
 import os
-import urllib.request
-import urllib.parse
 import urllib.error
+import urllib.parse
+import urllib.request
 
 from flask import Blueprint, Response, jsonify, request  # pylint: disable=import-error
-
 from helpers import run  # pylint: disable=import-error
 
 recommend_bp = Blueprint("recommend", __name__)
 log = logging.getLogger(__name__)
 
-SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "192.168.10.250")
+SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "mass.local")
 MA_TOKEN = os.environ.get("MA_TOKEN", "")
 LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -37,6 +36,7 @@ OPENROUTER_MODEL = os.environ.get(
 # ---------------------------------------------------------------------------
 # Last.fm helpers
 # ---------------------------------------------------------------------------
+
 
 def _lastfm_similar(artist, track, limit=20):
     """Fetch similar tracks from Last.fm.
@@ -62,7 +62,8 @@ def _lastfm_similar(artist, track, limit=20):
             f"&format=json"
         )
         req = urllib.request.Request(
-            url, headers={"User-Agent": "JukeboxPi/1.0"},
+            url,
+            headers={"User-Agent": "JukeboxPi/1.0"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
@@ -99,15 +100,13 @@ def _lastfm_similar_artists(artist, limit=10):
             f"&format=json"
         )
         req = urllib.request.Request(
-            url, headers={"User-Agent": "JukeboxPi/1.0"},
+            url,
+            headers={"User-Agent": "JukeboxPi/1.0"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
         artists = data.get("similarartists", {}).get("artist", [])
-        return [
-            a["name"] for a in artists
-            if isinstance(a, dict) and a.get("name")
-        ]
+        return [a["name"] for a in artists if isinstance(a, dict) and a.get("name")]
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("Last.fm similar artists failed: %s", exc)
         return []
@@ -116,6 +115,7 @@ def _lastfm_similar_artists(artist, limit=10):
 # ---------------------------------------------------------------------------
 # LLM helper (OpenRouter)
 # ---------------------------------------------------------------------------
+
 
 def _llm_curate(artist, track, similar_tracks, similar_artists, mood=""):
     """Ask an LLM to curate recommendations from Last.fm data.
@@ -158,21 +158,23 @@ def _llm_curate(artist, track, similar_tracks, similar_artists, mood=""):
     )
 
     try:
-        payload = json.dumps({
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a music recommendation assistant. "
-                        "Return only valid JSON arrays."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.7,
-            "max_tokens": 800,
-        }).encode()
+        payload = json.dumps(
+            {
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a music recommendation assistant. "
+                            "Return only valid JSON arrays."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.7,
+                "max_tokens": 800,
+            }
+        ).encode()
         req = urllib.request.Request(
             "https://openrouter.ai/api/v1/chat/completions",
             data=payload,
@@ -210,6 +212,7 @@ def _llm_curate(artist, track, similar_tracks, similar_artists, mood=""):
 # MA search helper
 # ---------------------------------------------------------------------------
 
+
 def _ma_search(query, limit=3):
     """Search Music Assistant for a track.
 
@@ -220,15 +223,17 @@ def _ma_search(query, limit=3):
     Returns:
         List of dicts with name, artist, uri, duration, image_url.
     """
-    payload = json.dumps({
-        "message_id": "rec",
-        "command": "music/search",
-        "args": {
-            "search_query": query,
-            "media_types": ["track"],
-            "limit": limit,
-        },
-    })
+    payload = json.dumps(
+        {
+            "message_id": "rec",
+            "command": "music/search",
+            "args": {
+                "search_query": query,
+                "media_types": ["track"],
+                "limit": limit,
+            },
+        }
+    )
     raw = run(
         f"curl -s -m 5 'http://{SNAPCAST_SERVER}:8095/api' "
         f"-H 'Content-Type: application/json' "
@@ -254,13 +259,15 @@ def _ma_search(query, limit=3):
                 if img.get("path"):
                     thumb = img["path"]
                     break
-            out.append({
-                "name": item.get("name", ""),
-                "artist": artist_name,
-                "uri": item.get("uri", ""),
-                "duration": item.get("duration", 0),
-                "image_url": thumb,
-            })
+            out.append(
+                {
+                    "name": item.get("name", ""),
+                    "artist": artist_name,
+                    "uri": item.get("uri", ""),
+                    "duration": item.get("duration", 0),
+                    "image_url": thumb,
+                }
+            )
         return out
     except (json.JSONDecodeError, TypeError):
         return []
@@ -269,6 +276,7 @@ def _ma_search(query, limit=3):
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+
 
 @recommend_bp.route("/api/recommend", methods=["POST"])
 def recommend():
@@ -305,7 +313,11 @@ def recommend():
         if OPENROUTER_API_KEY:
             yield _sse("status", "AI is curating recommendations...")
             curated = _llm_curate(
-                artist, track, similar_tracks, similar_artists, mood,
+                artist,
+                track,
+                similar_tracks,
+                similar_artists,
+                mood,
             )
             source = "lastfm+llm" if similar_tracks else "llm"
         else:
@@ -357,17 +369,20 @@ def _sse(event, data):
 # Auto-recommend: "Don't Stop the Music" mode
 # ---------------------------------------------------------------------------
 
+
 def _ma_recent_tracks(limit=10):
     """Fetch recently played tracks from MA.
 
     Returns:
         List of dicts with 'artist' and 'name' keys.
     """
-    payload = json.dumps({
-        "message_id": "auto",
-        "command": "music/recently_played_items",
-        "args": {"limit": limit, "media_types": ["track"]},
-    })
+    payload = json.dumps(
+        {
+            "message_id": "auto",
+            "command": "music/recently_played_items",
+            "args": {"limit": limit, "media_types": ["track"]},
+        }
+    )
     raw = run(
         f"curl -s -m 5 'http://{SNAPCAST_SERVER}:8095/api' "
         f"-H 'Content-Type: application/json' "
@@ -408,21 +423,14 @@ def _llm_auto_recommend(history, similar_pool, similar_artists, exclude):
     """
     if not OPENROUTER_API_KEY:
         # No LLM — return random similar tracks not in exclude
-        return [
-            t for t in similar_pool
-            if f"{t['artist']}|{t['name']}" not in exclude
-        ][:5]
+        return [t for t in similar_pool if f"{t['artist']}|{t['name']}" not in exclude][
+            :5
+        ]
 
-    history_list = "\n".join(
-        f"- {t['artist']} — {t['name']}" for t in history[:10]
-    )
-    pool_list = "\n".join(
-        f"- {t['artist']} — {t['name']}" for t in similar_pool[:30]
-    )
+    history_list = "\n".join(f"- {t['artist']} — {t['name']}" for t in history[:10])
+    pool_list = "\n".join(f"- {t['artist']} — {t['name']}" for t in similar_pool[:30])
     artist_list = ", ".join(similar_artists[:15])
-    exclude_list = "\n".join(
-        f"- {e.replace('|', ' — ')}" for e in list(exclude)[:20]
-    )
+    exclude_list = "\n".join(f"- {e.replace('|', ' — ')}" for e in list(exclude)[:20])
 
     prompt = (
         "I'm in 'endless radio' mode. Here's what I've been listening to "
@@ -440,21 +448,23 @@ def _llm_auto_recommend(history, similar_pool, similar_artists, exclude):
     )
 
     try:
-        payload = json.dumps({
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a music DJ assistant for an endless "
-                        "radio mode. Return only valid JSON arrays."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.8,
-            "max_tokens": 600,
-        }).encode()
+        payload = json.dumps(
+            {
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a music DJ assistant for an endless "
+                            "radio mode. Return only valid JSON arrays."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.8,
+                "max_tokens": 600,
+            }
+        ).encode()
         req = urllib.request.Request(
             "https://openrouter.ai/api/v1/chat/completions",
             data=payload,
@@ -479,16 +489,15 @@ def _llm_auto_recommend(history, similar_pool, similar_artists, exclude):
             return [
                 {"artist": t["artist"], "name": t["name"]}
                 for t in tracks
-                if isinstance(t, dict) and t.get("artist") and t.get("name")
+                if isinstance(t, dict)
+                and t.get("artist")
+                and t.get("name")
                 and f"{t['artist']}|{t['name']}" not in exclude
             ][:8]
     except Exception as exc:  # pylint: disable=broad-except
         log.warning("LLM auto-recommend failed: %s", exc)
 
-    return [
-        t for t in similar_pool
-        if f"{t['artist']}|{t['name']}" not in exclude
-    ][:5]
+    return [t for t in similar_pool if f"{t['artist']}|{t['name']}" not in exclude][:5]
 
 
 @recommend_bp.route("/api/recommend/auto", methods=["POST"])
@@ -538,7 +547,10 @@ def recommend_auto():
 
     # 4. LLM picks the best tracks
     curated = _llm_auto_recommend(
-        history, similar_pool, similar_artists_pool, exclude_keys,
+        history,
+        similar_pool,
+        similar_artists_pool,
+        exclude_keys,
     )
 
     # 5. Validate against MA and add to queue
@@ -560,15 +572,17 @@ def recommend_auto():
 
 def _ma_play(queue_id, uri):
     """Add a track URI to the MA queue."""
-    payload = json.dumps({
-        "message_id": "auto",
-        "command": "player_queues/play_media",
-        "args": {
-            "queue_id": queue_id,
-            "media": [uri],
-            "option": "add",
-        },
-    })
+    payload = json.dumps(
+        {
+            "message_id": "auto",
+            "command": "player_queues/play_media",
+            "args": {
+                "queue_id": queue_id,
+                "media": [uri],
+                "option": "add",
+            },
+        }
+    )
     run(
         f"curl -s -m 5 'http://{SNAPCAST_SERVER}:8095/api' "
         f"-H 'Content-Type: application/json' "

@@ -16,18 +16,26 @@ Endpoints:
 import json
 import os
 import queue
+import re
 import threading
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
 
-from flask import Blueprint, Response, jsonify, request  # pylint: disable=import-error
-
+from flask import (  # pylint: disable=import-error
+    Blueprint,
+    Response,
+    jsonify,
+    redirect,
+    request,
+)
 from helpers import run  # pylint: disable=import-error
 
 ma_bp = Blueprint("ma", __name__)
 
-SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "192.168.10.250")
+# mDNS hostname Music Assistant advertises (_mass._tcp). Resolving this instead
+# of a fixed IP means a moved MA/Snapcast server is picked up automatically.
+SNAPCAST_SERVER = os.environ.get("SNAPCAST_SERVER", "mass.local")
 MA_TOKEN = os.environ.get("MA_TOKEN", "")
 
 # --- Shared state updated by WS thread, read by SSE/API ---
@@ -57,10 +65,14 @@ def _ws_broadcast(event_type, data):
             sse_clients.remove(client_q)
     # Also broadcast to unified SSE
     try:
-        from routes.events import broadcast as unified_broadcast  # pylint: disable=import-outside-toplevel
+        from routes.events import (
+            broadcast as unified_broadcast,  # pylint: disable=import-outside-toplevel
+        )
+
         unified_broadcast(event_type, data)
     except Exception as exc:  # pylint: disable=broad-except
         import logging  # pylint: disable=import-outside-toplevel
+
         logging.getLogger(__name__).warning("unified broadcast failed: %s", exc)
 
 
@@ -68,8 +80,10 @@ def _ws_handle_message(msg):
     """Process a single WS message, update state and broadcast."""
     event = msg.get("event")
     if event in (
-        "queue_updated", "queue_items_updated",
-        "queue_time_updated", "player_updated",
+        "queue_updated",
+        "queue_items_updated",
+        "queue_time_updated",
+        "player_updated",
     ):
         data = msg.get("data", {})
         if event == "queue_updated":
@@ -116,11 +130,15 @@ def ma_ws_thread(app):
         try:
             ws = websocket.create_connection(url, timeout=60)
             ws.recv()  # server info message
-            ws.send(json.dumps({
-                "message_id": next_id(),
-                "command": "auth",
-                "args": {"token": MA_TOKEN},
-            }))
+            ws.send(
+                json.dumps(
+                    {
+                        "message_id": next_id(),
+                        "command": "auth",
+                        "args": {"token": MA_TOKEN},
+                    }
+                )
+            )
             auth_resp = json.loads(ws.recv())
             if not auth_resp.get("result", {}).get("authenticated"):
                 app.logger.error("MA WS auth failed")
@@ -130,11 +148,15 @@ def ma_ws_thread(app):
 
             ma_state["connected"] = True
             app.logger.info("MA WebSocket connected")
-            ws.send(json.dumps({
-                "message_id": next_id(),
-                "command": "player_queues/all",
-                "args": {},
-            }))
+            ws.send(
+                json.dumps(
+                    {
+                        "message_id": next_id(),
+                        "command": "player_queues/all",
+                        "args": {},
+                    }
+                )
+            )
 
             while True:
                 raw = ws.recv()
@@ -193,6 +215,7 @@ def ma_rpc(command, args=None):
 @ma_bp.route("/api/ma/events")
 def ma_events():
     """SSE endpoint: stream MA WebSocket events to browser."""
+
     def stream():
         client_q = queue.Queue(maxsize=50)
         with sse_lock:
@@ -220,7 +243,8 @@ def ma_events():
                     sse_clients.remove(client_q)
 
     return Response(
-        stream(), mimetype="text/event-stream",
+        stream(),
+        mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
@@ -314,7 +338,8 @@ def _fetch_lyrics(track_id, track_uri, artist="", title=""):
                 f"&track_name={urllib.parse.quote(title)}"
             )
             req = urllib.request.Request(
-                url, headers={"User-Agent": "JukeboxPi/1.0"},
+                url,
+                headers={"User-Agent": "JukeboxPi/1.0"},
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read())
@@ -334,10 +359,10 @@ def _fetch_lyrics(track_id, track_uri, artist="", title=""):
             f"curl -s -m 2 'http://{SNAPCAST_SERVER}:8095/api' "
             f"-H 'Content-Type: application/json' "
             f"-H 'Authorization: Bearer {MA_TOKEN}' "
-            f"-d '{{\"message_id\":\"2\","
-            f"\"command\":\"music/tracks/get\","
-            f"\"args\":{{\"item_id\":\"{track_id}\","
-            f"\"provider_instance_id_or_domain\":\"{provider}\"}}}}'",
+            f'-d \'{{"message_id":"2",'
+            f'"command":"music/tracks/get",'
+            f'"args":{{"item_id":"{track_id}",'
+            f'"provider_instance_id_or_domain":"{provider}"}}}}\'',
             timeout=3,
         )
         try:
@@ -361,14 +386,16 @@ def ma_volume():
     data = ma_rpc("players/all")
     if not data:
         return jsonify({"error": "MA unreachable"}), 500
-    for player in (data if isinstance(data, list) else []):
+    for player in data if isinstance(data, list) else []:
         if "jukebox" in player.get("display_name", "").lower():
-            return jsonify({
-                "volume": player.get("volume_level", 0),
-                "muted": player.get("volume_muted", False),
-                "player_id": player.get("player_id", ""),
-                "name": player.get("display_name", ""),
-            })
+            return jsonify(
+                {
+                    "volume": player.get("volume_level", 0),
+                    "muted": player.get("volume_muted", False),
+                    "player_id": player.get("player_id", ""),
+                    "name": player.get("display_name", ""),
+                }
+            )
     return jsonify({"error": "Player not found"}), 404
 
 
@@ -382,9 +409,13 @@ def ma_volume_set():
     if not player_id or volume is None:
         return jsonify({"error": "Missing player_id or volume"}), 400
     volume = max(0, min(100, int(volume)))
-    ma_rpc("players/cmd/volume_set", {
-        "player_id": player_id, "volume_level": volume,
-    })
+    ma_rpc(
+        "players/cmd/volume_set",
+        {
+            "player_id": player_id,
+            "volume_level": volume,
+        },
+    )
     return jsonify({"volume": volume})
 
 
@@ -430,30 +461,34 @@ def ma_queue():
         artist_name = artists[0].get("name", "") if artists else ""
         track_title = media_item.get("name", "")
 
-        return jsonify({
-            "elapsed_time": active_q.get("elapsed_time", 0),
-            "elapsed_time_last_updated": active_q.get("elapsed_time_last_updated", 0),
-            "duration": current_item.get("duration", 0),
-            "name": current_item.get("name", ""),
-            "uri": media_item.get("uri", ""),
-            "server_time": time.time(),
-            "next_track": next_item.get("name", ""),
-            "next_duration": next_item.get("duration", 0),
-            "quality": quality,
-            "codec": codec_type or codec,
-            "sample_rate": sample_rate,
-            "bit_depth": bits,
-            "queue_id": active_q.get("queue_id", ""),
-            "queue_index": active_q.get("current_index", 0),
-            "queue_item_id": current_item.get("queue_item_id", ""),
-            "queue_total": active_q.get("items", 0),
-            "shuffle": active_q.get("shuffle_enabled", False),
-            "repeat": active_q.get("repeat_mode", "off"),
-            "target_loudness": stream_details.get("target_loudness"),
-            "popularity": meta.get("popularity"),
-            "lyrics": lyrics,
-            "image_url": image_url,
-        })
+        return jsonify(
+            {
+                "elapsed_time": active_q.get("elapsed_time", 0),
+                "elapsed_time_last_updated": active_q.get(
+                    "elapsed_time_last_updated", 0
+                ),
+                "duration": current_item.get("duration", 0),
+                "name": current_item.get("name", ""),
+                "uri": media_item.get("uri", ""),
+                "server_time": time.time(),
+                "next_track": next_item.get("name", ""),
+                "next_duration": next_item.get("duration", 0),
+                "quality": quality,
+                "codec": codec_type or codec,
+                "sample_rate": sample_rate,
+                "bit_depth": bits,
+                "queue_id": active_q.get("queue_id", ""),
+                "queue_index": active_q.get("current_index", 0),
+                "queue_item_id": current_item.get("queue_item_id", ""),
+                "queue_total": active_q.get("items", 0),
+                "shuffle": active_q.get("shuffle_enabled", False),
+                "repeat": active_q.get("repeat_mode", "off"),
+                "target_loudness": stream_details.get("target_loudness"),
+                "popularity": meta.get("popularity"),
+                "lyrics": lyrics,
+                "image_url": image_url,
+            }
+        )
     except (KeyError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -466,25 +501,32 @@ def ma_queue_items():
     offset = int(request.args.get("offset", "0"))
     if not queue_id:
         return jsonify({"error": "Missing queue_id"}), 400
-    data = ma_rpc("player_queues/items", {
-        "queue_id": queue_id, "limit": limit, "offset": offset,
-    })
+    data = ma_rpc(
+        "player_queues/items",
+        {
+            "queue_id": queue_id,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     items = []
-    for item in (data if isinstance(data, list) else []):
+    for item in data if isinstance(data, list) else []:
         media_item = item.get("media_item") or {}
         artists = media_item.get("artists") or []
         artist_name = artists[0].get("name", "") if artists else ""
         name = item.get("name", "")
-        items.append({
-            "queue_item_id": item.get("queue_item_id", ""),
-            "name": name,
-            "duration": item.get("duration", 0),
-            "sort_index": item.get("sort_index", 0),
-            "artist": artist_name,
-            "uri": media_item.get("uri", ""),
-        })
+        items.append(
+            {
+                "queue_item_id": item.get("queue_item_id", ""),
+                "name": name,
+                "duration": item.get("duration", 0),
+                "sort_index": item.get("sort_index", 0),
+                "artist": artist_name,
+                "uri": media_item.get("uri", ""),
+            }
+        )
     return jsonify({"items": items})
 
 
@@ -498,32 +540,50 @@ def ma_queue_action():
         return jsonify({"error": "Missing queue_id"}), 400
 
     cmd_map = {
-        "delete": ("player_queues/delete_item", {
-            "queue_id": queue_id,
-            "item_id_or_index": body.get("queue_item_id", ""),
-        }),
-        "move": ("player_queues/move_item", {
-            "queue_id": queue_id,
-            "queue_item_id": body.get("queue_item_id", ""),
-            "pos_shift": body.get("pos_shift", 0),
-        }),
-        "play_index": ("player_queues/play_index", {
-            "queue_id": queue_id,
-            "index": body.get("queue_item_id", ""),
-        }),
+        "delete": (
+            "player_queues/delete_item",
+            {
+                "queue_id": queue_id,
+                "item_id_or_index": body.get("queue_item_id", ""),
+            },
+        ),
+        "move": (
+            "player_queues/move_item",
+            {
+                "queue_id": queue_id,
+                "queue_item_id": body.get("queue_item_id", ""),
+                "pos_shift": body.get("pos_shift", 0),
+            },
+        ),
+        "play_index": (
+            "player_queues/play_index",
+            {
+                "queue_id": queue_id,
+                "index": body.get("queue_item_id", ""),
+            },
+        ),
         "clear": ("player_queues/clear", {"queue_id": queue_id}),
-        "shuffle": ("player_queues/shuffle", {
-            "queue_id": queue_id,
-            "shuffle_enabled": body.get("enabled", False),
-        }),
-        "repeat": ("player_queues/repeat", {
-            "queue_id": queue_id,
-            "repeat_mode": body.get("mode", "off"),
-        }),
-        "dont_stop_the_music": ("player_queues/dont_stop_the_music", {
-            "queue_id": queue_id,
-            "dont_stop_the_music_enabled": body.get("enabled", False),
-        }),
+        "shuffle": (
+            "player_queues/shuffle",
+            {
+                "queue_id": queue_id,
+                "shuffle_enabled": body.get("enabled", False),
+            },
+        ),
+        "repeat": (
+            "player_queues/repeat",
+            {
+                "queue_id": queue_id,
+                "repeat_mode": body.get("mode", "off"),
+            },
+        ),
+        "dont_stop_the_music": (
+            "player_queues/dont_stop_the_music",
+            {
+                "queue_id": queue_id,
+                "dont_stop_the_music_enabled": body.get("enabled", False),
+            },
+        ),
     }
     if action not in cmd_map:
         return jsonify({"error": "Unknown action"}), 400
@@ -538,10 +598,32 @@ def ma_queue_action():
 
 @ma_bp.route("/api/ma/imageproxy")
 def ma_imageproxy():
-    """Proxy album art images from MA to avoid CORS issues."""
+    """Serve album art for the dashboard.
+
+    Remote, directly-loadable images (provider CDN URLs) are handed to the
+    browser via a 302 redirect so it fetches them straight from the source.
+    This offloads Music Assistant and avoids its deprecated /imageproxy?path=
+    endpoint. Only local/builtin images (collage, file paths) that MA alone can
+    resolve still go through the MA proxy.
+    """
     url = request.args.get("url", "")
     if not url:
         return "", 400
+    if url.startswith(("http://", "https://")):
+        # Music Assistant embeds its own (legacy) imageproxy URL in some metadata
+        # (e.g. Snapcast stream art). Unwrap it to the real CDN source so we
+        # redirect there directly instead of bouncing through MA's proxy.
+        parsed = urllib.parse.urlparse(url)
+        if "/imageproxy" in parsed.path:
+            inner = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
+            if inner.startswith(("http://", "https://")):
+                url = inner
+        # Downscale Apple Music artwork (e.g. .../1000x1000bb.jpg) to 512px to
+        # save bandwidth/decode on the Pi; other providers are served as-is.
+        if "mzstatic.com" in url:
+            url = re.sub(r"/\d+x\d+bb\.jpg", "/512x512bb.jpg", url)
+        return redirect(url, code=302)
+    # Local/builtin image: MA has to resolve and serve it (legacy proxy form).
     proxy_url = (
         f"http://{SNAPCAST_SERVER}:8095/imageproxy"
         f"?path={urllib.parse.quote(url, safe='')}"
@@ -553,7 +635,8 @@ def ma_imageproxy():
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = resp.read()
             return Response(
-                data, mimetype="image/jpeg",
+                data,
+                mimetype="image/jpeg",
                 headers={"Cache-Control": "public, max-age=3600"},
             )
     except (OSError, ValueError):
@@ -584,14 +667,18 @@ def ma_recent():
     if not MA_TOKEN:
         return jsonify({"error": "MA_TOKEN not configured"}), 500
     limit = int(request.args.get("limit", "20"))
-    data = ma_rpc("music/recently_played_items", {
-        "limit": limit, "media_types": ["track"],
-    })
+    data = ma_rpc(
+        "music/recently_played_items",
+        {
+            "limit": limit,
+            "media_types": ["track"],
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     result = data.get("result", data) if isinstance(data, dict) else data
     items = []
-    for item in (result if isinstance(result, list) else []):
+    for item in result if isinstance(result, list) else []:
         media_item = item if "name" in item else item.get("media_item", item)
         artists = media_item.get("artists") or []
         artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
@@ -603,13 +690,15 @@ def ma_recent():
                 break
         if not thumb and images:
             thumb = images[0].get("path", "")
-        items.append({
-            "name": media_item.get("name", ""),
-            "artist": artist_name,
-            "uri": media_item.get("uri", ""),
-            "duration": media_item.get("duration", 0),
-            "image_url": thumb,
-        })
+        items.append(
+            {
+                "name": media_item.get("name", ""),
+                "artist": artist_name,
+                "uri": media_item.get("uri", ""),
+                "duration": media_item.get("duration", 0),
+                "image_url": thumb,
+            }
+        )
     return jsonify({"items": items})
 
 
@@ -626,11 +715,14 @@ def ma_search():
         return jsonify({"error": "Missing query"}), 400
     media_types = request.args.get("types", "track,album,playlist").split(",")
     limit = int(request.args.get("limit", "20"))
-    data = ma_rpc("music/search", {
-        "search_query": query,
-        "media_types": [t.strip() for t in media_types],
-        "limit": limit,
-    })
+    data = ma_rpc(
+        "music/search",
+        {
+            "search_query": query,
+            "media_types": [t.strip() for t in media_types],
+            "limit": limit,
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     result = data.get("result", data) if isinstance(data, dict) else data
@@ -639,30 +731,36 @@ def ma_search():
 
     def _parse_items(items, kind):
         out = []
-        for item in (items or []):
+        for item in items or []:
             artists = item.get("artists") or []
-            artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
+            artist_name = (
+                ", ".join(a.get("name", "") for a in artists) if artists else ""
+            )
             images = (item.get("metadata") or {}).get("images") or []
             thumb = ""
             for img in images:
                 if img.get("path"):
                     thumb = img["path"]
                     break
-            out.append({
-                "name": item.get("name", ""),
-                "artist": artist_name,
-                "uri": item.get("uri", ""),
-                "duration": item.get("duration", 0),
-                "image_url": thumb,
-                "type": kind,
-            })
+            out.append(
+                {
+                    "name": item.get("name", ""),
+                    "artist": artist_name,
+                    "uri": item.get("uri", ""),
+                    "duration": item.get("duration", 0),
+                    "image_url": thumb,
+                    "type": kind,
+                }
+            )
         return out
 
-    return jsonify({
-        "tracks": _parse_items(result.get("tracks"), "track"),
-        "albums": _parse_items(result.get("albums"), "album"),
-        "playlists": _parse_items(result.get("playlists"), "playlist"),
-    })
+    return jsonify(
+        {
+            "tracks": _parse_items(result.get("tracks"), "track"),
+            "albums": _parse_items(result.get("albums"), "album"),
+            "playlists": _parse_items(result.get("playlists"), "playlist"),
+        }
+    )
 
 
 # --- Play media (enqueue URI) ---
@@ -679,11 +777,14 @@ def ma_play():
     option = body.get("option", "play")  # play, next, add, replace
     if not uri or not queue_id:
         return jsonify({"error": "Missing uri or queue_id"}), 400
-    result = ma_rpc("player_queues/play_media", {
-        "queue_id": queue_id,
-        "media": [uri],
-        "option": option,
-    })
+    result = ma_rpc(
+        "player_queues/play_media",
+        {
+            "queue_id": queue_id,
+            "media": [uri],
+            "option": option,
+        },
+    )
     return jsonify({"result": result or "ok"})
 
 
@@ -695,30 +796,35 @@ def ma_playlists():
     """List all playlists from MA library."""
     if not MA_TOKEN:
         return jsonify({"error": "MA_TOKEN not configured"}), 500
-    data = ma_rpc("music/playlists/library_items", {
-        "limit": 100, "offset": 0,
-    })
+    data = ma_rpc(
+        "music/playlists/library_items",
+        {
+            "limit": 100,
+            "offset": 0,
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     result = data.get("result", data) if isinstance(data, dict) else data
     items = []
-    for item in (result if isinstance(result, list) else []):
+    for item in result if isinstance(result, list) else []:
         images = (item.get("metadata") or {}).get("images") or []
         thumb = ""
         for img in images:
             if img.get("path"):
                 thumb = img["path"]
                 break
-        items.append({
-            "name": item.get("name", ""),
-            "uri": item.get("uri", ""),
-            "item_id": item.get("item_id", ""),
-            "owner": item.get("owner", ""),
-            "is_editable": item.get("is_editable", False),
-            "image_url": thumb,
-        })
+        items.append(
+            {
+                "name": item.get("name", ""),
+                "uri": item.get("uri", ""),
+                "item_id": item.get("item_id", ""),
+                "owner": item.get("owner", ""),
+                "is_editable": item.get("is_editable", False),
+                "image_url": thumb,
+            }
+        )
     return jsonify({"items": items})
-
 
 
 # --- Album tracks ---
@@ -733,27 +839,31 @@ def ma_album_tracks():
     provider = request.args.get("provider", "library")
     if not item_id:
         return jsonify({"error": "Missing item_id"}), 400
-    data = ma_rpc("music/albums/album_tracks", {
-        "item_id": item_id,
-        "provider_instance_id_or_domain": provider,
-    })
+    data = ma_rpc(
+        "music/albums/album_tracks",
+        {
+            "item_id": item_id,
+            "provider_instance_id_or_domain": provider,
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     result = data.get("result", data) if isinstance(data, dict) else data
     items = []
-    for item in (result if isinstance(result, list) else []):
+    for item in result if isinstance(result, list) else []:
         artists = item.get("artists") or []
         artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
-        items.append({
-            "name": item.get("name", ""),
-            "artist": artist_name,
-            "uri": item.get("uri", ""),
-            "duration": item.get("duration", 0),
-            "track_number": item.get("track_number", 0),
-        })
+        items.append(
+            {
+                "name": item.get("name", ""),
+                "artist": artist_name,
+                "uri": item.get("uri", ""),
+                "duration": item.get("duration", 0),
+                "track_number": item.get("track_number", 0),
+            }
+        )
     items.sort(key=lambda x: x["track_number"])
     return jsonify({"items": items})
-
 
 
 # --- Playlist tracks ---
@@ -768,10 +878,13 @@ def ma_playlist_tracks():
     provider = request.args.get("provider", "builtin")
     if not item_id:
         return jsonify({"error": "Missing item_id"}), 400
-    data = ma_rpc("music/playlists/playlist_tracks", {
-        "item_id": item_id,
-        "provider_instance_id_or_domain": provider,
-    })
+    data = ma_rpc(
+        "music/playlists/playlist_tracks",
+        {
+            "item_id": item_id,
+            "provider_instance_id_or_domain": provider,
+        },
+    )
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     result = data.get("result", data) if isinstance(data, dict) else data
@@ -779,13 +892,15 @@ def ma_playlist_tracks():
     for i, item in enumerate(result if isinstance(result, list) else []):
         artists = item.get("artists") or []
         artist_name = ", ".join(a.get("name", "") for a in artists) if artists else ""
-        items.append({
-            "name": item.get("name", ""),
-            "artist": artist_name,
-            "uri": item.get("uri", ""),
-            "duration": item.get("duration", 0),
-            "track_number": i + 1,
-        })
+        items.append(
+            {
+                "name": item.get("name", ""),
+                "artist": artist_name,
+                "uri": item.get("uri", ""),
+                "duration": item.get("duration", 0),
+                "track_number": i + 1,
+            }
+        )
     return jsonify({"items": items})
 
 
@@ -843,14 +958,16 @@ def ma_players():
     if data is None:
         return jsonify({"error": "MA unreachable"}), 500
     players = []
-    for player in (data if isinstance(data, list) else []):
-        players.append({
-            "player_id": player.get("player_id", ""),
-            "name": player.get("display_name", ""),
-            "available": player.get("available", False),
-            "active_source": player.get("active_source", ""),
-            "type": player.get("type", ""),
-        })
+    for player in data if isinstance(data, list) else []:
+        players.append(
+            {
+                "player_id": player.get("player_id", ""),
+                "name": player.get("display_name", ""),
+                "available": player.get("available", False),
+                "active_source": player.get("active_source", ""),
+                "type": player.get("type", ""),
+            }
+        )
     return jsonify({"players": players})
 
 
@@ -864,10 +981,13 @@ def ma_players_transfer():
     source = body.get("source_queue_id", "ma_jukebox")
     if not target:
         return jsonify({"error": "Missing target_queue_id"}), 400
-    result = ma_rpc("player_queues/transfer", {
-        "source_queue_id": source,
-        "target_queue_id": target,
-    })
+    result = ma_rpc(
+        "player_queues/transfer",
+        {
+            "source_queue_id": source,
+            "target_queue_id": target,
+        },
+    )
     return jsonify({"result": result or "ok"})
 
 
@@ -881,10 +1001,13 @@ def ma_queue_save():
     queue_id = body.get("queue_id", "ma_jukebox")
     if not name:
         return jsonify({"error": "Missing playlist name"}), 400
-    result = ma_rpc("player_queues/save_as_playlist", {
-        "queue_id": queue_id,
-        "name": name,
-    })
+    result = ma_rpc(
+        "player_queues/save_as_playlist",
+        {
+            "queue_id": queue_id,
+            "name": name,
+        },
+    )
     return jsonify({"result": result or "ok"})
 
 

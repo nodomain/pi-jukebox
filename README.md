@@ -66,7 +66,7 @@ Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 
 - Raspberry Pi Zero 2 W (or any Pi with Bluetooth)
 - Raspberry Pi OS Lite (64-bit, Debian Trixie)
-- Snapcast server (e.g. Music Assistant add-on in Home Assistant)
+- Snapcast server (e.g. the Music Assistant **Snapcast** player provider). The Pi finds it via mDNS (`mass.local`), so its IP can change freely.
 - Bluetooth speaker with A2DP support
 
 ## Quick Start
@@ -147,7 +147,7 @@ make ssh       — open SSH session
 
 | Component | Details |
 |---|---|
-| **snapclient** | PulseAudio output, connects to Snapcast server, 500ms latency buffer, fixed hostID |
+| **snapclient** | PulseAudio output, connects to the Snapcast server via its mDNS hostname (`mass.local`), 500ms latency buffer, fixed hostID |
 | **PipeWire + WirePlumber** | Bluetooth A2DP audio backend |
 | **BlueZ** | `AutoEnable=true`, speaker paired and trusted |
 | **WirePlumber** | Seat monitoring disabled (headless fix), SBC-XQ codec preferred |
@@ -156,7 +156,7 @@ make ssh       — open SSH session
 | **jukebox-web.service** | Flask dashboard on port 8080 |
 | **shairport-sync** | AirPlay receiver — pauses Snapcast while iPhone streams |
 | **raspotify** | Spotify Connect receiver — pauses Snapcast while Spotify streams |
-| **avahi-daemon** | mDNS for AirPlay/Spotify discovery |
+| **avahi-daemon + libnss-mdns** | mDNS for AirPlay/Spotify discovery, and `.local` name resolution so `mass.local` resolves to the Music Assistant / Snapcast server |
 | **cava** | FFT audio visualizer for the dashboard |
 | **SD card protection** | tmpfs on `/var/log` + `/var/tmp`, volatile journal, `commit=120s` |
 | **WiFi power save** | Disabled — prevents latency spikes |

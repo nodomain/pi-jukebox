@@ -5,4 +5,5 @@ __pycache__/
 node_modules/
 web/node_modules/
 web/static/app.js
-web/package-lock.jsonscripts/diagnose-wifi.sh
+web/package-lock.json
+scripts/diagnose-wifi.sh
