@@ -22,6 +22,7 @@ from routes.fft import fft_bp
 from routes.events import events_bp, start_poll_thread
 from routes.airplay import airplay_bp, start_airplay_thread
 from routes.recommend import recommend_bp
+from routes.sfx import sfx_bp
 
 app = Flask(__name__)
 
@@ -36,6 +37,7 @@ app.register_blueprint(fft_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(airplay_bp)
 app.register_blueprint(recommend_bp)
+app.register_blueprint(sfx_bp)
 
 
 @app.route("/")

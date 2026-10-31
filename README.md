@@ -61,6 +61,15 @@ Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 - **Synced Lyrics** — LRCLIB integration, highlighted current line with auto-scroll
 - **"Don't Stop the Music"** — ∞ button, uses MA native feature to auto-fill queue
 - **Theme Toggle** — dark/light mode
+- **Sound Effects API**: plays local clips from `web/sfx/<pack>/` straight into PipeWire (bypasses Snapcast, mixes over music). `GET /api/sfx` lists packs, `GET|POST /api/sfx/play?pack=<name>[&clip=<file>][&volume=0..1.5]` plays one; random picks use a shuffle bag (no repeats until every clip has played). No authentication, LAN only. Example Home Assistant `rest_command`:
+
+  ```yaml
+  rest_command:
+    klingel_evil_laugh:
+      url: "http://jukebox.local:8080/api/sfx/play?pack=halloween"
+      method: get
+      timeout: 3
+  ```
 
 ## Prerequisites
 
