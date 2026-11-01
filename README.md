@@ -11,6 +11,7 @@ Designed for battery/portable use — safe to pull power at any time.
 - **Spotify Connect** — `raspotify` (librespot) receiver, shows up as "Jukebox" in Spotify (Premium required)
 - **SBC-XQ codec** — better audio quality over Bluetooth (auto-negotiated)
 - **Auto-reconnect** — watchdog reconnects to speaker on boot or power-cycle
+- **Speaker keep-alive**: the Bluetooth sink never suspends and `bt-keepalive` streams inaudible noise (~-84 dBFS), so the speaker never drops into auto-standby (costs speaker battery when idle)
 - **Zero SD card writes** — tmpfs mounts + volatile journal during normal operation
 - **WiFi roaming** — auto-rescans when signal drops below -70 dBm
 - **Web dashboard** — Now Playing, playback controls, queue browser, live system charts, BT/service management
@@ -61,6 +62,15 @@ Available at `http://<hostname>:8080` after setup. Mobile-first, dark theme.
 - **Synced Lyrics** — LRCLIB integration, highlighted current line with auto-scroll
 - **"Don't Stop the Music"** — ∞ button, uses MA native feature to auto-fill queue
 - **Theme Toggle** — dark/light mode
+- **Sound Effects API**: plays local clips from `web/sfx/<pack>/` straight into PipeWire (bypasses Snapcast, mixes over music). `GET /api/sfx` lists packs, `GET|POST /api/sfx/play?pack=<name>[&clip=<file>][&volume=0..1.5]` plays one; random picks use a shuffle bag (no repeats until every clip has played). No authentication, LAN only. Example Home Assistant `rest_command`:
+
+  ```yaml
+  rest_command:
+    klingel_evil_laugh:
+      url: "http://jukebox.local:8080/api/sfx/play?pack=halloween"
+      method: get
+      timeout: 3
+  ```
 
 ## Prerequisites
 

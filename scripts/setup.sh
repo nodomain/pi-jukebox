@@ -309,6 +309,23 @@ device.profile.priority.rules = [
   }
 ]' || true
 
+# Never suspend the Bluetooth sink: an idle sink closes the A2DP transport, which
+# lets the speaker drop into auto-standby and clips the first ms of the next sound.
+WP_CHANGED=false
+ensure_file /etc/wireplumber/wireplumber.conf.d/52-bluez-no-suspend.conf \
+'monitor.bluez.rules = [
+  {
+    matches = [
+      { node.name = "~bluez_output.*" }
+    ]
+    actions = {
+      update-props = {
+        session.suspend-timeout-seconds = 0
+      }
+    }
+  }
+]' && WP_CHANGED=true || true
+
 # --- SD card protection ---
 echo "==> SD card writes"
 # Only rewrite fstab if tmpfs mounts are missing
@@ -419,6 +436,54 @@ Wants=bluetooth.service
 
 [Service]
 ExecStart=/usr/local/bin/bt-watchdog
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target" || true
+
+# --- Bluetooth keep-alive ---
+echo "==> Bluetooth keep-alive"
+# Feeds inaudible noise (~-84 dBFS, not digital silence) into PipeWire so the
+# speaker always sees an active stream and never enters auto-standby.
+cat > /usr/local/bin/bt-keepalive << 'KEEPALIVE'
+#!/usr/bin/env python3
+"""Stream inaudible noise to the default PipeWire sink forever."""
+import random
+import struct
+import subprocess
+import sys
+
+RATE, CHANNELS = 48000, 2
+# One second of +-2 LSB s16 noise, looped (pw-cat paces the writes)
+BUF = struct.pack(f"<{RATE * CHANNELS}h",
+                  *(random.randint(-2, 2) for _ in range(RATE * CHANNELS)))
+
+proc = subprocess.Popen(
+    ["pw-cat", "--playback", "--raw", "--format=s16", f"--rate={RATE}",
+     f"--channels={CHANNELS}",
+     "-P", '{ media.name = "BT keep-alive" node.name = "bt-keepalive" }', "-"],
+    stdin=subprocess.PIPE,
+)
+try:
+    while True:
+        proc.stdin.write(BUF)
+except (BrokenPipeError, KeyboardInterrupt):
+    pass
+sys.exit(proc.wait() or 1)  # always non-zero so systemd restarts it
+KEEPALIVE
+chmod +x /usr/local/bin/bt-keepalive
+
+ensure_file /etc/systemd/system/bt-keepalive.service \
+"[Unit]
+Description=Keep ${BT_DEVICE_NAME} awake with an inaudible stream
+After=bt-autoconnect.service
+
+[Service]
+User=${JUKEBOX_USER}
+Group=${JUKEBOX_USER}
+Environment=XDG_RUNTIME_DIR=/run/user/${UID_NUM}
+ExecStart=/usr/local/bin/bt-keepalive
 Restart=always
 RestartSec=5
 
@@ -642,7 +707,7 @@ WantedBy=multi-user.target" || true
 # --- Enable services ---
 echo "==> Enabling services"
 systemctl daemon-reload
-SERVICES=(snapclient bt-autoconnect bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon raspotify cpu-performance)
+SERVICES=(snapclient bt-autoconnect bt-keepalive bluetooth wifi-roam jukebox-web shairport-sync avahi-daemon raspotify cpu-performance)
 for svc in "${SERVICES[@]}"; do
     if systemctl is-enabled "$svc" &>/dev/null; then
         echo "  $svc already enabled"
@@ -651,6 +716,14 @@ for svc in "${SERVICES[@]}"; do
         echo "  $svc enabled"
     fi
 done
+
+# Apply a changed WirePlumber config now (brief audio gap), then (re)start the keep-alive
+if [[ "$WP_CHANGED" == "true" ]]; then
+    runuser -u "${JUKEBOX_USER}" -- env XDG_RUNTIME_DIR="/run/user/${UID_NUM}" \
+        systemctl --user restart wireplumber 2>/dev/null || true
+    echo "  wireplumber restarted"
+fi
+systemctl restart bt-keepalive 2>/dev/null || true
 
 # --- Disable unnecessary timers ---
 echo "==> Disabling unnecessary timers"

@@ -19,6 +19,7 @@ build: ## Bundle JS modules with esbuild
 deploy: build ## Build + deploy web dashboard to the Pi
 	@echo "==> Uploading to $(HOST):$(TMP_DIR)"
 	@ssh $(HOST) "rm -rf $(TMP_DIR) && mkdir -p $(TMP_DIR)/templates $(TMP_DIR)/static $(TMP_DIR)/routes"
+	@scp -qr web/sfx                                 $(HOST):$(TMP_DIR)/
 	@scp -q web/app.py web/helpers.py web/cava.conf $(HOST):$(TMP_DIR)/
 	@scp -q web/routes/*.py                         $(HOST):$(TMP_DIR)/routes/
 	@scp -q web/static/style.css web/static/app.js web/static/manifest.json web/static/favicon.svg web/static/icon-192.png web/static/icon-512.png web/static/sw.js $(HOST):$(TMP_DIR)/static/
@@ -27,6 +28,7 @@ deploy: build ## Build + deploy web dashboard to the Pi
 	@ssh $(HOST) "\
 		sudo rm -rf $(REMOTE_DIR)/__pycache__ $(REMOTE_DIR)/routes/__pycache__ && \
 		sudo cp -r $(TMP_DIR)/* $(REMOTE_DIR)/ && \
+		sudo sync && \
 		sudo systemctl restart jukebox-web && \
 		rm -rf $(TMP_DIR)"
 	@ssh $(HOST) "sudo systemctl is-active jukebox-web"
