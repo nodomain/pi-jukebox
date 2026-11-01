@@ -11,6 +11,7 @@ Designed for battery/portable use — safe to pull power at any time.
 - **Spotify Connect** — `raspotify` (librespot) receiver, shows up as "Jukebox" in Spotify (Premium required)
 - **SBC-XQ codec** — better audio quality over Bluetooth (auto-negotiated)
 - **Auto-reconnect** — watchdog reconnects to speaker on boot or power-cycle
+- **Speaker keep-alive**: the Bluetooth sink never suspends and `bt-keepalive` streams inaudible noise (~-84 dBFS), so the speaker never drops into auto-standby (costs speaker battery when idle)
 - **Zero SD card writes** — tmpfs mounts + volatile journal during normal operation
 - **WiFi roaming** — auto-rescans when signal drops below -70 dBm
 - **Web dashboard** — Now Playing, playback controls, queue browser, live system charts, BT/service management
